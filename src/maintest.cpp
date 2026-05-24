@@ -1,62 +1,62 @@
 #include <iostream>
+#include <fstream>
 #include <string>
-#include "LogEntry.h"
-#include "LogChunk.h"
+#include <chrono> // Thư viện đo thời gian chuẩn của C++
+
+#include "LogStore.h"
 #include "DuplicateHashSet.h"
+#include "DataLoader.h"
+
+// // Hàm phụ trợ: Tự động tạo một file CSV mẫu ngay tại thư mục code
+// void createMockCSV(const std::string& filename) {
+//     std::ofstream file(filename);
+//     // Dòng 1: Header (Sẽ bị DataLoader vứt bỏ)
+//     file << "user_id,device_id,app_id,resource_id,event_type,location,timestamp\n";
+//     // Dòng 2: Hàng xịn
+//     file << "user_1,device_1,app_1,res_1,LOGIN,VN,1716537600\n";
+//     // Dòng 3: Hàng xịn
+//     file << "user_2,device_2,app_2,res_2,DOWNLOAD,US,1716537605\n";
+//     // Dòng 4: TRÙNG LẶP HOÀN TOÀN VỚI DÒNG 2 (Sẽ bị DuplicateHashSet đuổi về)
+//     file << "user_1,device_1,app_1,res_1,LOGIN,VN,1716537600\n"; 
+//     // Dòng 5: Hàng xịn
+//     file << "user_3,device_3,app_1,res_1,LOGOUT,JP,1716537610\n";
+//     file.close();
+//     std::cout << "[+] Da tao xong file mau: " << filename << std::endl;
+// }
 
 int main() {
-    std::cout << "=== KHOI DONG HE THONG HALO ENGINE ===" << std::endl;
+    std::cout << "=== KHOI DONG HALO ENGINE (DATA LOADER TEST) ===\n" << std::endl;
 
-    // ---------------------------------------------------------
-    // TEST 1: KIỂM TRA BỘ LỌC TRÙNG LẶP (DuplicateHashSet)
-    // ---------------------------------------------------------
-    std::cout << "\n[TEST 1] Kiem tra bo loc trung lap (Gatekeeper)..." << std::endl;
-    
-    // Khởi tạo bộ lọc với 5 cái xô (bucket) để test
-    DuplicateHashSet hashSet(5); 
+    std::string testFile = "halo_dataset_2000_events_locations.csv";
+    // createMockCSV(testFile);
 
-    // Giả lập 3 dòng đọc từ file CSV
-    std::string line1 = "2026-05-24,user_1,login,app_1";
-    std::string line2 = "2026-05-24,user_2,logout,app_2";
-    std::string line3 = "2026-05-24,user_1,login,app_1"; // Cố tình nạp lại line 1 (Trùng rác)
+    // 1. Khởi tạo nhà kho và cổng an ninh
+    // Khởi tạo trước 10 xe tải trong metadata, và 10,000 cái xô để lọc trùng
+    LogStore store(10); 
+    DuplicateHashSet gatekeeper(5000); 
 
-    // Đưa qua hàm băm djb2 để lấy vân tay (fingerprint)
-    unsigned long long fp1 = DuplicateHashSet::djb2(line1);
-    unsigned long long fp2 = DuplicateHashSet::djb2(line2);
-    unsigned long long fp3 = DuplicateHashSet::djb2(line3);
+    std::cout << "\n[*] Dang nap du lieu tu file: " << testFile << "..." << std::endl;
 
-    // Thử nạp vào hệ thống
-    std::cout << "Nap dong 1: " << (hashSet.insertIfAbsent(fp1) ? "THANH CONG (Moi)" : "TU CHOI (Trung)") << std::endl;
-    std::cout << "Nap dong 2: " << (hashSet.insertIfAbsent(fp2) ? "THANH CONG (Moi)" : "TU CHOI (Trung)") << std::endl;
-    std::cout << "Nap dong 3: " << (hashSet.insertIfAbsent(fp3) ? "THANH CONG (Moi)" : "TU CHOI (Trung)") << std::endl;
+    // Bắt đầu bấm giờ
+    auto start = std::chrono::high_resolution_clock::now();
 
+    // Gọi hàm Parser siêu tốc
+    bool success = DataLoader::load(testFile, store, gatekeeper);
 
-    // ---------------------------------------------------------
-    // TEST 2: KIỂM TRA THÙNG CHỨA CỐ ĐỊNH (LogChunk)
-    // ---------------------------------------------------------
-    std::cout << "\n[TEST 2] Kiem tra thung chua co dinh (LogChunk)..." << std::endl;
-    
-    // Khởi tạo một thùng chỉ chứa được tối đa 2 dòng log
-    LogChunk chunk(2); 
+    // Kết thúc bấm giờ
+    auto end = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double, std::milli> duration = end - start;
 
-    // Tạo giả 3 cục dữ liệu sạch (sau khi đã bóc tách)
-    LogEntry entry1; entry1.userId = 1;
-    LogEntry entry2; entry2.userId = 2;
-    LogEntry entry3; entry3.userId = 3;
-
-    // Thử nhét vào thùng
-    LogEntry* p1 = chunk.append(entry1);
-    std::cout << "Nhet data 1: " << (p1 != nullptr ? "VAO THUNG" : "THUNG DAY!") << std::endl;
-
-    LogEntry* p2 = chunk.append(entry2);
-    std::cout << "Nhet data 2: " << (p2 != nullptr ? "VAO THUNG" : "THUNG DAY!") << std::endl;
-
-    LogEntry* p3 = chunk.append(entry3); // Thùng chỉ chứa được 2, nhét cái thứ 3 sẽ bị chặn
-    std::cout << "Nhet data 3: " << (p3 != nullptr ? "VAO THUNG" : "THUNG DAY! (Tra ve nullptr)") << std::endl;
+    // In báo cáo
+    if (success) {
+        std::cout << "[V] NAP DU LIEU THANH CONG!" << std::endl;
+        std::cout << "    - Thoi gian chay: " << duration.count() << " ms" << std::endl;
+        std::cout << "    - Tong so dong da luu: " << store.size() << " dong" << std::endl;
+    } else {
+        std::cout << "[X] LỖI: Khong tim thay file hoac file bi loi!" << std::endl;
+    }
 
     std::cout << "\n=== KET THUC TEST ===" << std::endl;
-    
-    // Giữ màn hình console không bị tắt chớp nhoáng
-    std::cin.get(); 
+    std::cin.get();
     return 0;
 }
