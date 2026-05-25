@@ -7,94 +7,159 @@
 #include "DataLoader.h"
 #include "SearchEngine.h"
 
-// Hàm phụ trợ: Nén chuỗi thành ID (Mô phỏng lại cơ chế của DataLoader)
-uint32_t stringToCompactId(const std::string& str) {
-    unsigned long long hash = 5381ULL;
-    for (char c : str) {
-        hash = ((hash << 5) + hash) + static_cast<unsigned char>(c);
-    }
-    return static_cast<uint32_t>(hash & 0xFFFFFFFFU);
-}
-
 int main() {
     std::cout << "==================================================\n";
-    std::cout << "    HALO ENGINE - TONG DUYET HE THONG (PHASE 1)   \n";
+    std::cout << "    HALO ENGINE - BAO CAO GIUA KY (PHASE 1)       \n";
     std::cout << "==================================================\n\n";
 
-    // --- BƯỚC 1: KHỞI TẠO HỆ THỐNG ---
-    std::string testFile = "halo_dataset_1000_events_locations.csv"; 
+    // ---------------------------------------------------------
+    // BƯỚC 1 & 2: NẠP DỮ LIỆU & XÂY DỰNG MỤC LỤC
+    // ---------------------------------------------------------
+    std::string testFile = "halo_dataset_1000_events_locations.csv"; // Sửa lại đúng tên file của bạn
     LogStore store(10); 
     DuplicateHashSet gatekeeper(5000); 
 
-    // --- BƯỚC 2: NẠP DỮ LIỆU (DATA LOADER) ---
-    std::cout << "[1] DANG NAP DU LIEU TU FILE CSV...\n";
-    auto startLoad = std::chrono::high_resolution_clock::now();
-    
-    bool loadSuccess = DataLoader::load(testFile, store, gatekeeper);
-    
-    auto endLoad = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<double, std::milli> loadTime = endLoad - startLoad;
-
-    if (!loadSuccess) {
-        std::cout << "[X] Loi: Khong doc duoc file CSV!\n";
-        return 1;
-    }
-    std::cout << "    -> Thanh cong! Da nap " << store.size() << " dong (Thoi gian: " << loadTime.count() << " ms)\n\n";
-
-    // --- BƯỚC 3: XÂY DỰNG CHỈ MỤC (INDEXING) ---
-    std::cout << "[2] DANG XAY DUNG TU MUC LUC (USER & RESOURCE)...\n";
-    auto startBuild = std::chrono::high_resolution_clock::now();
+    std::cout << "[*] DANG KHOI DONG HE THONG...\n";
+    DataLoader::load(testFile, store, gatekeeper);
     
     SearchEngine engine(5000, 5000); 
     engine.buildIndices(store);
-    
-    auto endBuild = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<double, std::milli> buildTime = endBuild - startBuild;
-    std::cout << "    -> Thanh cong! (Thoi gian: " << buildTime.count() << " ms)\n\n";
 
-    // --- BƯỚC 4: TEST KHAI THÁC - TÌM HÀNH TRÌNH USER ---
-    std::string targetUser = "U007"; 
-    uint32_t targetUserId = stringToCompactId(targetUser);
-    
-    std::cout << "[3] TRUY VAN: Lich su hanh dong cua [" << targetUser << "]\n";
-    const auto* userResults = engine.searchByUser(targetUserId);
+    std::cout << "[V] Da nap va danh chi muc thanh cong " << store.size() << " dong log.\n";
+    std::cout << "[V] So luong chuoi ky tu (StringPool) da nen: " << store.stringPool.size() << " tu.\n\n";
 
+    // Khai báo một khoảng thời gian giả định cho Yêu cầu 5
+    // (Trong thực tế, bạn có thể cho người dùng nhập từ bàn phím)
+    int64_t startTime = 0;           // Từ đầu kỷ nguyên máy tính
+    int64_t endTime   = 2000000000;  // Đến khoảng năm 2033
+
+    // ---------------------------------------------------------
+    // YÊU CẦU 5.1: HÀNH TRÌNH CỦA 1 USER (Device -> App -> Resource)
+    // ---------------------------------------------------------
+    std::string targetUser = "U007"; // Thay bằng User có thật trong CSV
+    uint32_t userId = store.stringPool.getOrCreateId(targetUser);
+
+    std::cout << "--------------------------------------------------\n";
+    std::cout << "[YEU CAU 5.1] Hanh trinh cua User: " << targetUser << "\n";
+    std::cout << "Thoi gian: Tu " << startTime << " den " << endTime << "\n";
+    
+    const auto* userResults = engine.searchByUser(userId);
     if (userResults != nullptr && userResults->size() > 0) {
-        std::cout << "    -> Tim thay " << userResults->size() << " log.\n";
-        // In 5 hành động đầu tiên (Device -> App -> Resource)
-        uint32_t printCount = (userResults->size() > 5) ? 5 : userResults->size();
-        for (uint32_t i = 0; i < printCount; ++i) {
+        int count = 0;
+        for (uint32_t i = 0; i < userResults->size(); ++i) {
             const LogEntry* entry = (*userResults)[i];
-            std::cout << "       - Timestamp: " << entry->timestamp 
-                      << " | Hanh trinh: Device(" << entry->deviceId << ") -> App(" << entry->appId << ") -> Resource(" << entry->resourceId << ")\n";
+            
+            // Lọc theo khoảng thời gian cho trước
+            if (entry->timestamp >= startTime && entry->timestamp <= endTime) {
+                std::cout << "  - T: " << entry->timestamp << " | "
+                          << store.stringPool.getString(entry->deviceId) << " -> "
+                          << store.stringPool.getString(entry->appId) << " -> "
+                          << store.stringPool.getString(entry->resourceId) << "\n";
+                count++;
+            }
         }
+        std::cout << "-> Tong cong: " << count << " hanh dong.\n";
     } else {
-        std::cout << "    -> [X] Khong tim thay du lieu cua " << targetUser << "\n";
+        std::cout << "-> Khong co du lieu.\n";
     }
     std::cout << "\n";
 
-    // --- BƯỚC 5: TEST KHAI THÁC - TÌM HÀNH TRÌNH RESOURCE ---
-    std::string targetResource = "R003"; // Bạn có thể đổi thành tên resource có thật trong CSV
-    uint32_t targetResId = stringToCompactId(targetResource);
+    // ---------------------------------------------------------
+    // YÊU CẦU 5.2: HÀNH TRÌNH CỦA 1 RESOURCE (User -> Device -> App)
+    // ---------------------------------------------------------
+    std::string targetResource = "R006"; // Thay bằng Resource có thật trong CSV
+    uint32_t resId = store.stringPool.getOrCreateId(targetResource);
 
-    std::cout << "[4] TRUY VAN: Ai da truy cap tai nguyen [" << targetResource << "]\n";
-    const auto* resResults = engine.searchByResource(targetResId);
+    std::cout << "--------------------------------------------------\n";
+    std::cout << "[YEU CAU 5.2] Nguoi dung truy cap Resource: " << targetResource << "\n";
+    std::cout << "Thoi gian: Tu " << startTime << " den " << endTime << "\n";
 
+    const auto* resResults = engine.searchByResource(resId);
     if (resResults != nullptr && resResults->size() > 0) {
-        std::cout << "    -> Tim thay " << resResults->size() << " log.\n";
-        // In 5 hành động đầu tiên (User -> Device -> App)
-        uint32_t printCount = (resResults->size() > 5) ? 5 : resResults->size();
-        for (uint32_t i = 0; i < printCount; ++i) {
+        int count = 0;
+        for (uint32_t i = 0; i < resResults->size(); ++i) {
             const LogEntry* entry = (*resResults)[i];
-            std::cout << "       - Timestamp: " << entry->timestamp 
-                      << " | Hanh trinh: User(" << entry->userId << ") -> Device(" << entry->deviceId << ") -> App(" << entry->appId << ")\n";
+            
+            if (entry->timestamp >= startTime && entry->timestamp <= endTime) {
+                std::cout << "  - T: " << entry->timestamp << " | "
+                          << store.stringPool.getString(entry->userId) << " -> "
+                          << store.stringPool.getString(entry->deviceId) << " -> "
+                          << store.stringPool.getString(entry->appId) << "\n";
+                count++;
+            }
         }
+        std::cout << "-> Tong cong: " << count << " hanh dong.\n";
     } else {
-        std::cout << "    -> [X] Khong tim thay du lieu cua " << targetResource << "\n";
+        std::cout << "-> Khong co du lieu.\n";
+    }
+    std::cout << "\n";
+
+    // ---------------------------------------------------------
+    // YÊU CẦU 5.3: TOP 10 TÀI NGUYÊN TRUY CẬP NHIỀU NHẤT
+    // Dùng thuật toán mảng đếm tần suất (Bucket Counting) cực nhanh
+    // ---------------------------------------------------------
+    std::cout << "--------------------------------------------------\n";
+    std::cout << "[YEU CAU 5.3] Top 10 Tai Nguyen (Tu " << startTime << " den " << endTime << ")\n";
+    
+    auto startTop10 = std::chrono::high_resolution_clock::now();
+
+    // 1. Tạo mảng đếm tần suất (Kích thước = tổng số từ vựng trong từ điển)
+    uint32_t dictionarySize = store.stringPool.size();
+    uint32_t* counts = new uint32_t[dictionarySize];
+    for (uint32_t i = 0; i < dictionarySize; ++i) counts[i] = 0;
+
+    // 2. Đi qua nhà kho 1 vòng, thấy resource nào tăng biến đếm của resource đó
+    for (uint32_t c = 0; c < store.chunkCount(); ++c) {
+        const LogChunk* chunk = store.getChunk(c);
+        if (!chunk) continue;
+        const LogEntry* entries = chunk->raw();
+        
+        for (uint32_t i = 0; i < chunk->size(); ++i) {
+            if (entries[i].timestamp >= startTime && entries[i].timestamp <= endTime) {
+                counts[entries[i].resourceId]++;
+            }
+        }
     }
 
-    std::cout << "\n==================================================\n";
-    std::cout << "                 TEST HOAN TAT                    \n";
+    // 3. Tìm 10 thằng có count cao nhất bằng Insertion Sort thu nhỏ
+    struct TopRes { uint32_t id; uint32_t count; };
+    TopRes top[10];
+    for (int i = 0; i < 10; ++i) { top[i].id = 0; top[i].count = 0; }
+
+    for (uint32_t i = 0; i < dictionarySize; ++i) {
+        if (counts[i] > top[9].count) {
+            top[9].id = i;
+            top[9].count = counts[i];
+            
+            // Đẩy dần lên trên để giữ thứ tự giảm dần
+            for (int j = 8; j >= 0; --j) {
+                if (top[j+1].count > top[j].count) {
+                    TopRes temp = top[j];
+                    top[j] = top[j+1];
+                    top[j+1] = temp;
+                } else break;
+            }
+        }
+    }
+
+    // 4. In kết quả Top 10
+    int rank = 1;
+    for (int i = 0; i < 10; ++i) {
+        if (top[i].count > 0) {
+            std::cout << "  " << rank++ << ". " 
+                      << store.stringPool.getString(top[i].id) 
+                      << " (Truy cap: " << top[i].count << " lan)\n";
+        }
+    }
+
+    delete[] counts; // Dọn rác bộ nhớ mảng đếm
+
+    auto endTop10 = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double, std::milli> top10Time = endTop10 - startTop10;
+    std::cout << "-> (Thoi gian thong ke Top 10: " << top10Time.count() << " ms)\n";
+
+    std::cout << "==================================================\n";
+    std::cout << "           HOAN TACH XUAT SAC PHASE 1!            \n";
     std::cout << "==================================================\n";
 
     std::cin.get();

@@ -7,6 +7,7 @@
 #include "DynamicArray.h"
 #include "LogChunk.h"
 #include "LogEntry.h"
+#include "StringPool.h"
 
 /*
  * LogStore owns all LogChunk objects.
@@ -35,6 +36,7 @@ private:
     }
 
 public:
+    StringPool stringPool;
     LogStore()
         : chunks(8),
           currentChunk(nullptr),

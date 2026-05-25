@@ -196,14 +196,19 @@ namespace {
         return hash;
     }
 
-    uint32_t compactIdFromField(const FieldView& field) {
-        unsigned long long hash = 5381ULL;
+    // uint32_t compactIdFromField(const FieldView& field) {
+    //     unsigned long long hash = 5381ULL;
 
-        for (uint32_t i = 0; i < field.length; ++i) {
-            hash = ((hash << 5) + hash) + static_cast<unsigned char>(field.start[i]);
-        }
+    //     for (uint32_t i = 0; i < field.length; ++i) {
+    //         hash = ((hash << 5) + hash) + static_cast<unsigned char>(field.start[i]);
+    //     }
 
-        return static_cast<uint32_t>(hash & 0xFFFFFFFFU);
+    //     return static_cast<uint32_t>(hash & 0xFFFFFFFFU);
+    // }
+
+    // THÊM HÀM NÀY VÀO CHỖ VỪA XÓA:
+    std::string fieldToString(const FieldView& field) {
+        return std::string(field.start, field.length);
     }
 
     void trimRightCarriageReturn(FieldView& field) {
@@ -302,10 +307,10 @@ namespace {
         }
 
         LogEntry entry(
-            compactIdFromField(parsed.userId),
-            compactIdFromField(parsed.deviceId),
-            compactIdFromField(parsed.appId),
-            compactIdFromField(parsed.resourceId),
+            store.stringPool.getOrCreateId(fieldToString(parsed.userId)),
+            store.stringPool.getOrCreateId(fieldToString(parsed.deviceId)),
+            store.stringPool.getOrCreateId(fieldToString(parsed.appId)),
+            store.stringPool.getOrCreateId(fieldToString(parsed.resourceId)),
             parsed.eventType,
             parsed.location,
             parsed.timestamp
