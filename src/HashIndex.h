@@ -6,6 +6,7 @@
 
 #include "DynamicArray.h"
 #include "LogEntry.h"
+#include "SortUtils.h"
 
 /*
  * HashIndex maps a compact uint32_t key to a timeline of LogEntry pointers.
@@ -37,7 +38,7 @@ private:
     uint32_t hashKey(uint32_t key) const {
         /*
          * Integer mixing hash.
-         * Cheap and good enough for compact dictionary IDs.
+         * Cheap and effective for compact dictionary IDs.
          */
         key ^= key >> 16;
         key *= 0x7feb352dU;
@@ -135,6 +136,23 @@ public:
         }
 
         return nullptr;
+    }
+
+    /*
+     * Sorts every indexed timeline by timestamp.
+     *
+     * This keeps sorting encapsulated inside HashIndex. SearchEngine only asks
+     * the index to finalize itself after all insertions are complete.
+     */
+    void sortAllTimelines() {
+        for (uint32_t i = 0; i < bucketCount; ++i) {
+            Node* current = buckets[i];
+
+            while (current != nullptr) {
+                SortUtils::sortByTimestamp(current->entries);
+                current = current->next;
+            }
+        }
     }
 
     uint32_t size() const {
