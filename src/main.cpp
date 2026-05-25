@@ -1,6 +1,8 @@
+// main.cpp
 #include <iostream>
 #include <string>
 #include <chrono>
+#include <limits>
 
 #include "LogStore.h"
 #include "DuplicateHashSet.h"
@@ -8,73 +10,234 @@
 #include "SearchEngine.h"
 #include "QueryEngine.h"
 
+namespace {
+    const std::string DEFAULT_CSV_PATH = "halo_dataset_1m.csv";
+    const std::string DEFAULT_USER = "U06619";
+    const std::string DEFAULT_RES = "R00659";
+    const int64_t DEFAULT_START = 0;
+    const int64_t DEFAULT_END = 2000000000;
+
+    void printDivider() {
+        std::cout << "============================================================\n";
+    }
+
+    void clearBadInput() {
+        std::cin.clear();
+        std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+    }
+
+    bool readInt64WithDefault(
+        const std::string& prompt,
+        int64_t& value,
+        int64_t defaultValue
+    ) {
+        std::cout << prompt << " [Enter = " << defaultValue << "]: ";
+
+        std::string input;
+        std::getline(std::cin, input);
+
+        if (input.empty()) {
+            value = defaultValue;
+            return true;
+        }
+
+        try {
+            value = std::stoll(input);
+            return true;
+        } catch (...) {
+            std::cout << "Invalid number. Please try again.\n";
+            return false;
+        }
+    }
+
+    void readTimeRange(int64_t& startTime, int64_t& endTime) {
+        while (!readInt64WithDefault("Start timestamp", startTime, DEFAULT_START)) {}
+        while (!readInt64WithDefault("End timestamp", endTime, DEFAULT_END)) {}
+
+        if (startTime > endTime) {
+            std::cout << "Start timestamp is greater than end timestamp. Swapping values.\n";
+
+            int64_t temp = startTime;
+            startTime = endTime;
+            endTime = temp;
+        }
+    }
+
+    void printMenu() {
+        printDivider();
+        std::cout << "Halo - Cyber Access Engine\n";
+        printDivider();
+        std::cout << "[1] User Journey\n";
+        std::cout << "[2] Resource History\n";
+        std::cout << "[3] Top 10 Resources\n";
+        std::cout << "[0] Exit\n";
+        printDivider();
+        std::cout << "Choice: ";
+    }
+
+    void printQueryElapsedTime(
+        const std::chrono::high_resolution_clock::time_point& start,
+        const std::chrono::high_resolution_clock::time_point& end
+    ) {
+        auto elapsedUs = std::chrono::duration_cast<std::chrono::microseconds>(
+            end - start
+        ).count();
+
+        std::cout << "Query execution time: " << elapsedUs << " us\n";
+    }
+}
+
 int main() {
-    std::cout << "==================================================\n";
-    std::cout << "    HALO ENGINE - GIAI DOAN 1 (MIDTERM)           \n";
-    std::cout << "    Ho va ten: Le Nguyen Thuy Linh                \n";
-    std::cout << "==================================================\n\n";
+    printDivider();
+    std::cout << "Halo - Cyber Access Engine\n";
+    std::cout << "High-Performance In-Memory Log Analytics\n";
+    printDivider();
 
-    // --- 1. KHỞI TẠO HỆ THỐNG ---
-    std::string testFile = "halo_dataset_1m.csv"; 
-    LogStore store(10); 
-    DuplicateHashSet gatekeeper(5000); 
+    std::cout << "CSV file path [Enter = " << DEFAULT_CSV_PATH << "]: ";
 
-    // --- 2. NẠP DỮ LIỆU ---
-    std::cout << "[*] Dang nap du lieu tu file: " << testFile << "...\n";
-    auto startLoad = std::chrono::high_resolution_clock::now();
-    
-    if (!DataLoader::load(testFile, store, gatekeeper)) {
-        std::cout << "[X] Loi: Khong doc duoc file!\n";
+    std::string filename;
+    std::getline(std::cin, filename);
+
+    if (filename.empty()) {
+        filename = DEFAULT_CSV_PATH;
+    }
+
+    LogStore store(16384);
+    store.stringPool.reserve(262147);
+
+    DuplicateHashSet gatekeeper(2000003);
+
+    std::cout << "\nLoading data from: " << filename << '\n';
+
+    auto loadStart = std::chrono::high_resolution_clock::now();
+    bool loaded = DataLoader::load(filename, store, gatekeeper);
+    auto loadEnd = std::chrono::high_resolution_clock::now();
+
+    auto loadMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+        loadEnd - loadStart
+    ).count();
+
+    if (!loaded) {
+        std::cout << "Failed to load CSV file.\n";
         return 1;
     }
-    
-    auto endLoad = std::chrono::high_resolution_clock::now();
-    std::cout << "[V] Da nap " << store.size() << " dong (Thoi gian: " 
-              << std::chrono::duration<double, std::milli>(endLoad - startLoad).count() << " ms)\n";
 
-    // --- 3. XÂY DỰNG CHỈ MỤC & SẮP XẾP ---
-    std::cout << "[*] Dang xay dung chi muc va sap xep thoi gian...\n";
-    auto startBuild = std::chrono::high_resolution_clock::now();
-    
-    SearchEngine engine(5000, 5000); 
+    std::cout << "Rows loaded: " << store.size() << '\n';
+    std::cout << "Ingestion time: " << loadMs << " ms\n";
+
+    std::cout << "\nBuilding search indices...\n";
+
+    SearchEngine engine(262147, 262147);
+
+    auto indexStart = std::chrono::high_resolution_clock::now();
     engine.buildIndices(store);
-    
-    auto endBuild = std::chrono::high_resolution_clock::now();
-    std::cout << "[V] Hoan tat chi muc (Thoi gian: " 
-              << std::chrono::duration<double, std::milli>(endBuild - startBuild).count() << " ms)\n\n";
+    auto indexEnd = std::chrono::high_resolution_clock::now();
 
-    // --- 4. TRUY VẤN NGHIỆP VỤ (YÊU CẦU 5) ---
-    // Giả lập dữ liệu đầu vào (Bạn có thể đổi thành std::cin nếu thầy yêu cầu nhập tay)
-    std::string targetUser = "U06619";
-    std::string targetResource = "R01685";
-    int64_t startTime = 0;
-    int64_t endTime = 2000000000;
+    auto indexMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+        indexEnd - indexStart
+    ).count();
 
-    uint32_t targetUserId = store.stringPool.getOrCreateId(targetUser);
-    uint32_t targetResId = store.stringPool.getOrCreateId(targetResource);
+    std::cout << "Indexing time: " << indexMs << " ms\n";
 
-    std::cout << "==================================================\n";
-    std::cout << "[YEU CAU 5.1] Kiem tra hanh trinh cua User\n";
-    std::cout << "==================================================\n";
-    QueryEngine::printUserJourney(targetUserId, startTime, endTime, engine, store.stringPool);
-    std::cout << "\n";
+    while (true) {
+        int choice = -1;
 
-    std::cout << "==================================================\n";
-    std::cout << "[YEU CAU 5.2] Kiem tra lich su truy cap Resource\n";
-    std::cout << "==================================================\n";
-    QueryEngine::printResourceJourney(targetResId, startTime, endTime, engine, store.stringPool);
-    std::cout << "\n";
+        std::cout << '\n';
+        printMenu();
 
-    std::cout << "==================================================\n";
-    std::cout << "[YEU CAU 5.3] Top 10 Tai nguyen truy cap nhieu nhat\n";
-    std::cout << "==================================================\n";
-    QueryEngine::printTop10Resources(startTime, endTime, store);
-    std::cout << "\n";
+        if (!(std::cin >> choice)) {
+            clearBadInput();
+            std::cout << "Invalid choice. Please enter a number.\n";
+            continue;
+        }
 
-    std::cout << "==================================================\n";
-    std::cout << "    HOAN TAT XUAT SAC KIEM TRA GIUA KY!           \n";
-    std::cout << "==================================================\n";
+        clearBadInput();
 
-    std::cin.get();
+        if (choice == 0) {
+            std::cout << "Exiting Halo Engine.\n";
+            break;
+        }
+
+        if (choice == 1) {
+            std::string userText;
+            int64_t startTime = 0;
+            int64_t endTime = 0;
+
+            std::cout << "User ID [Enter = " << DEFAULT_USER << "]: ";
+            std::getline(std::cin, userText);
+
+            if (userText.empty()) {
+                userText = DEFAULT_USER;
+            }
+
+            uint32_t userId = store.stringPool.getOrCreateId(userText);
+            readTimeRange(startTime, endTime);
+
+            printDivider();
+
+            auto queryStart = std::chrono::high_resolution_clock::now();
+            QueryEngine::printUserJourney(
+                userId,
+                startTime,
+                endTime,
+                engine,
+                store.stringPool
+            );
+            auto queryEnd = std::chrono::high_resolution_clock::now();
+
+            printQueryElapsedTime(queryStart, queryEnd);
+            continue;
+        }
+
+        if (choice == 2) {
+            std::string resourceText;
+            int64_t startTime = 0;
+            int64_t endTime = 0;
+
+            std::cout << "Resource ID [Enter = " << DEFAULT_RES << "]: ";
+            std::getline(std::cin, resourceText);
+
+            if (resourceText.empty()) {
+                resourceText = DEFAULT_RES;
+            }
+
+            uint32_t resourceId = store.stringPool.getOrCreateId(resourceText);
+            readTimeRange(startTime, endTime);
+
+            printDivider();
+
+            auto queryStart = std::chrono::high_resolution_clock::now();
+            QueryEngine::printResourceJourney(
+                resourceId,
+                startTime,
+                endTime,
+                engine,
+                store.stringPool
+            );
+            auto queryEnd = std::chrono::high_resolution_clock::now();
+
+            printQueryElapsedTime(queryStart, queryEnd);
+            continue;
+        }
+
+        if (choice == 3) {
+            int64_t startTime = 0;
+            int64_t endTime = 0;
+
+            readTimeRange(startTime, endTime);
+
+            printDivider();
+
+            auto queryStart = std::chrono::high_resolution_clock::now();
+            QueryEngine::printTop10Resources(startTime, endTime, store);
+            auto queryEnd = std::chrono::high_resolution_clock::now();
+
+            printQueryElapsedTime(queryStart, queryEnd);
+            continue;
+        }
+
+        std::cout << "Unknown option. Please choose 1, 2, 3, or 0.\n";
+    }
+
     return 0;
 }
