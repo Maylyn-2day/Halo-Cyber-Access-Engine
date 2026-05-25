@@ -32,6 +32,9 @@ public:
      * Call this after DataLoader finishes inserting rows into LogStore.
      * The LogStore must outlive SearchEngine because indexes store pointers
      * to entries owned by LogStore.
+     *
+     * After all insertions are complete, every per-key timeline is sorted by
+     * timestamp for fast chronological scans and future binary-search queries.
      */
     void buildIndices(const LogStore& store) {
         for (uint32_t chunkIndex = 0; chunkIndex < store.chunkCount(); ++chunkIndex) {
@@ -51,6 +54,9 @@ public:
                 resourceIndex.insert(entry->resourceId, entry);
             }
         }
+
+        userIndex.sortAllTimelines();
+        resourceIndex.sortAllTimelines();
     }
 
     const DynamicArray<const LogEntry*>* searchByUser(uint32_t userId) const {
