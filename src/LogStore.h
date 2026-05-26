@@ -26,10 +26,6 @@ private:
     bool allocateChunk() {
         LogChunk* chunk = new LogChunk(DEFAULT_CHUNK_SIZE);
 
-        if (chunk == nullptr) {
-            return false;
-        }
-
         chunks.pushBack(chunk);
         currentChunk = chunk;
         return true;
