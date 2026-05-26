@@ -61,11 +61,11 @@ struct LogEntry {
     Location location;
 
     LogEntry()
-        : userId(0),
+        : timestamp(0),
+          userId(0),
           deviceId(0),
           appId(0),
           resourceId(0),
-          timestamp(0),
           eventType(EVENT_INVALID),
           location(LOC_INVALID) {}
 
@@ -78,11 +78,11 @@ struct LogEntry {
         Location loc,
         int64_t ts
     )
-        : userId(user),
+        : timestamp(ts),
+          userId(user),
           deviceId(device),
           appId(app),
           resourceId(resource),
-          timestamp(ts),
           eventType(event),
           location(loc) {}
 };
