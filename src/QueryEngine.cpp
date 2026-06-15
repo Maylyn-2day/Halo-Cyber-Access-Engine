@@ -64,9 +64,11 @@ void QueryEngine::printUserJourney(
         }
 
         std::cout << "  - T: " << entry->timestamp
-                  << " | " << pool.getString(entry->deviceId)
+                  << " | [" << eventTypeToString(entry->eventType) << "] "
+                  << pool.getString(entry->deviceId)
                   << " -> " << pool.getString(entry->appId)
                   << " -> " << pool.getString(entry->resourceId)
+                  << " (" << locationToString(entry->location) << ")"
                   << '\n';
     }
 }
@@ -103,9 +105,11 @@ void QueryEngine::printResourceJourney(
         }
 
         std::cout << "  - T: " << entry->timestamp
-                  << " | " << pool.getString(entry->userId)
+                  << " | [" << eventTypeToString(entry->eventType) << "] "
+                  << pool.getString(entry->userId)
                   << " -> " << pool.getString(entry->deviceId)
                   << " -> " << pool.getString(entry->appId)
+                  << " (" << locationToString(entry->location) << ")"
                   << '\n';
     }
 }
@@ -115,14 +119,20 @@ void QueryEngine::printTop10Resources(
     int64_t endTime,
     const LogStore& store
 ) {
-    uint32_t resourceCapacity = store.stringPool.size();
-
-    if (resourceCapacity == 0) {
+    if (store.size() == 0) {
         std::cout << "No resources available.\n";
         return;
     }
 
-    uint32_t* counts = new uint32_t[resourceCapacity]();
+    struct CountNode {
+        uint32_t resourceId;
+        uint32_t count;
+        CountNode* next;
+        explicit CountNode(uint32_t id) : resourceId(id), count(1), next(nullptr) {}
+    };
+
+    uint32_t bucketCount = 100003;
+    CountNode** buckets = new CountNode*[bucketCount]();
 
     for (uint32_t chunkIndex = 0; chunkIndex < store.chunkCount(); ++chunkIndex) {
         const LogChunk* chunk = store.getChunk(chunkIndex);
@@ -141,17 +151,40 @@ void QueryEngine::printTop10Resources(
                 continue;
             }
 
-            if (entry.resourceId < resourceCapacity) {
-                ++counts[entry.resourceId];
+            uint32_t index = entry.resourceId % bucketCount;
+            CountNode* current = buckets[index];
+            bool found = false;
+
+            while (current != nullptr) {
+                if (current->resourceId == entry.resourceId) {
+                    current->count++;
+                    found = true;
+                    break;
+                }
+                current = current->next;
+            }
+
+            if (!found) {
+                CountNode* newNode = new CountNode(entry.resourceId);
+                newNode->next = buckets[index];
+                buckets[index] = newNode;
             }
         }
     }
 
     TopResource topResources[10];
 
-    for (uint32_t resourceId = 0; resourceId < resourceCapacity; ++resourceId) {
-        insertIntoTop10(topResources, resourceId, counts[resourceId]);
+    for (uint32_t i = 0; i < bucketCount; ++i) {
+        CountNode* current = buckets[i];
+        while (current != nullptr) {
+            insertIntoTop10(topResources, current->resourceId, current->count);
+            CountNode* next = current->next;
+            delete current;
+            current = next;
+        }
     }
+
+    delete[] buckets;
 
     std::cout << "Top 10 Resources\n";
 
@@ -165,7 +198,4 @@ void QueryEngine::printTop10Resources(
                   << " | Count: " << topResources[i].count
                   << '\n';
     }
-
-    delete[] counts;
-    counts = nullptr;
 }

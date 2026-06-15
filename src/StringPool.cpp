@@ -1,8 +1,7 @@
 #include "StringPool.h"
 
-StringPool::Node::Node(const std::string& nodeKey, uint32_t nodeId)
-    : key(nodeKey),
-      id(nodeId),
+StringPool::Node::Node(uint32_t nodeId)
+    : id(nodeId),
       next(nullptr) {}
 
 unsigned long long StringPool::hashString(const std::string& str) const {
@@ -61,7 +60,7 @@ uint32_t StringPool::getOrCreateId(const std::string& str) {
     Node* current = buckets[index];
 
     while (current != nullptr) {
-        if (current->key == str) {
+        if (strings[current->id] == str) {
             return current->id;
         }
 
@@ -71,7 +70,7 @@ uint32_t StringPool::getOrCreateId(const std::string& str) {
     uint32_t newId = strings.size();
     strings.pushBack(str);
 
-    Node* created = new Node(str, newId);
+    Node* created = new Node(newId);
     created->next = buckets[index];
     buckets[index] = created;
     ++keyCount;
