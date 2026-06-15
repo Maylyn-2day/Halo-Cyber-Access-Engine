@@ -2,6 +2,7 @@
 
 #include <iostream>
 
+#include "../core/SortUtils.h"
 #include "../core/StringPool.h"
 #include "../indexing/SearchEngine.h"
 #include "../storage/LogStore.h"
@@ -44,19 +45,14 @@ void QueryEngine::printUserJourney(uint32_t userId, int64_t startTime,
 
   std::cout << "User Journey: " << pool.getString(userId) << '\n';
 
-  for (uint32_t i = 0; i < timeline->size(); ++i) {
+  uint32_t lo = SortUtils::lowerBound(*timeline, startTime);
+  uint32_t hi = SortUtils::upperBound(*timeline, endTime);
+
+  for (uint32_t i = lo; i < hi; ++i) {
     const LogEntry *entry = (*timeline)[i];
 
     if (entry == nullptr) {
       continue;
-    }
-
-    if (entry->timestamp < startTime) {
-      continue;
-    }
-
-    if (entry->timestamp > endTime) {
-      break;
     }
 
     std::cout << "  - T: " << entry->timestamp << " | ["
@@ -83,19 +79,14 @@ void QueryEngine::printResourceJourney(uint32_t resourceId, int64_t startTime,
 
   std::cout << "Resource Journey: " << pool.getString(resourceId) << '\n';
 
-  for (uint32_t i = 0; i < timeline->size(); ++i) {
+  uint32_t lo = SortUtils::lowerBound(*timeline, startTime);
+  uint32_t hi = SortUtils::upperBound(*timeline, endTime);
+
+  for (uint32_t i = lo; i < hi; ++i) {
     const LogEntry *entry = (*timeline)[i];
 
     if (entry == nullptr) {
       continue;
-    }
-
-    if (entry->timestamp < startTime) {
-      continue;
-    }
-
-    if (entry->timestamp > endTime) {
-      break;
     }
 
     std::cout << "  - T: " << entry->timestamp << " | ["
@@ -128,6 +119,12 @@ void QueryEngine::printTop10Resources(int64_t startTime, int64_t endTime,
     const LogChunk *chunk = store.getChunk(chunkIndex);
 
     if (chunk == nullptr) {
+      continue;
+    }
+
+    // Bỏ qua toàn bộ Chunk nếu time-range của nó không giao với query window.
+    // Chi phí: 2 phép so sánh int64, tiết kiệm tới 8192 phép kiểm tra entry.
+    if (chunk->getMaxTimestamp() < startTime || chunk->getMinTimestamp() > endTime) {
       continue;
     }
 

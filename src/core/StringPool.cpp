@@ -4,11 +4,21 @@ StringPool::Node::Node(uint32_t nodeId)
     : id(nodeId),
       next(nullptr) {}
 
-unsigned long long StringPool::hashString(const std::string& str) const {
+unsigned long long StringPool::hashString(const std::string &str) const {
     unsigned long long hash = 5381ULL;
 
     for (uint32_t i = 0; i < str.length(); ++i) {
         hash = ((hash << 5) + hash) + static_cast<unsigned char>(str[i]);
+    }
+
+    return hash;
+}
+
+unsigned long long StringPool::hashRaw(const char *data, uint32_t length) const {
+    unsigned long long hash = 5381ULL;
+
+    for (uint32_t i = 0; i < length; ++i) {
+        hash = ((hash << 5) + hash) + static_cast<unsigned char>(data[i]);
     }
 
     return hash;
@@ -71,6 +81,33 @@ uint32_t StringPool::getOrCreateId(const std::string& str) {
     strings.pushBack(str);
 
     Node* created = new Node(newId);
+    created->next = buckets[index];
+    buckets[index] = created;
+    ++keyCount;
+
+    return newId;
+}
+
+uint32_t StringPool::getOrCreateId(const char *data, uint32_t length) {
+    unsigned long long hash = hashRaw(data, length);
+    uint32_t index = static_cast<uint32_t>(hash % bucketCount);
+
+    Node *current = buckets[index];
+
+    while (current != nullptr) {
+        const std::string &stored = strings[current->id];
+        if (stored.length() == length &&
+            std::memcmp(stored.c_str(), data, length) == 0) {
+            return current->id;
+        }
+        current = current->next;
+    }
+
+    // Cache Miss: only here do we allocate a canonical std::string
+    uint32_t newId = strings.size();
+    strings.pushBack(std::string(data, length));
+
+    Node *created = new Node(newId);
     created->next = buckets[index];
     buckets[index] = created;
     ++keyCount;
