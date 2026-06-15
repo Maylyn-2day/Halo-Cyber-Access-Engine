@@ -11,9 +11,8 @@
 #include "QueryEngine.h"
 
 namespace {
-    const std::string DEFAULT_CSV_PATH = "halo_dataset_1m.csv";
-    const std::string DEFAULT_USER = "U06619";
-    const std::string DEFAULT_RES = "R00659";
+    const std::string DEFAULT_CSV_PATH = "data.csv";
+
     const int64_t DEFAULT_START = 0;
     const int64_t DEFAULT_END = 2000000000;
 
@@ -125,6 +124,22 @@ int main() {
     std::cout << "Rows loaded: " << store.size() << '\n';
     std::cout << "Ingestion time: " << loadMs << " ms\n";
 
+    std::string defaultUser = "";
+    std::string defaultRes = "";
+
+    if (store.size() > 0 && store.chunkCount() > 0) {
+        const LogChunk* firstChunk = store.getChunk(0);
+
+        if (firstChunk != nullptr && firstChunk->size() > 0) {
+            const LogEntry* firstEntry = firstChunk->raw();
+
+            if (firstEntry != nullptr) {
+                defaultUser = store.stringPool.getString(firstEntry[0].userId);
+                defaultRes = store.stringPool.getString(firstEntry[0].resourceId);
+            }
+        }
+    }
+
     std::cout << "\nBuilding search indices...\n";
 
     SearchEngine engine(262147, 262147);
@@ -163,11 +178,11 @@ int main() {
             int64_t startTime = 0;
             int64_t endTime = 0;
 
-            std::cout << "User ID [Enter = " << DEFAULT_USER << "]: ";
+            std::cout << "User ID [Enter = " << defaultUser << "]: ";
             std::getline(std::cin, userText);
 
             if (userText.empty()) {
-                userText = DEFAULT_USER;
+                userText = defaultUser;
             }
 
             uint32_t userId = store.stringPool.getOrCreateId(userText);
@@ -194,11 +209,11 @@ int main() {
             int64_t startTime = 0;
             int64_t endTime = 0;
 
-            std::cout << "Resource ID [Enter = " << DEFAULT_RES << "]: ";
+            std::cout << "Resource ID [Enter = " << defaultRes << "]: ";
             std::getline(std::cin, resourceText);
 
             if (resourceText.empty()) {
-                resourceText = DEFAULT_RES;
+                resourceText = defaultRes;
             }
 
             uint32_t resourceId = store.stringPool.getOrCreateId(resourceText);

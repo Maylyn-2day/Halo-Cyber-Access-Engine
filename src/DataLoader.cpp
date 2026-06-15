@@ -1,4 +1,5 @@
 // DataLoader.cpp
+#define _CRT_SECURE_NO_WARNINGS
 #include "DataLoader.h"
 
 #include <cstdio>
@@ -152,21 +153,13 @@ namespace {
             return false;
         }
 
-        uint32_t index = 0;
-        bool negative = false;
-
-        if (field.start[index] == '-') {
-            negative = true;
-            ++index;
-
-            if (index == field.length) {
-                return false;
-            }
+        if (field.start[0] == '-') {
+            return false;
         }
 
         int64_t result = 0;
 
-        for (; index < field.length; ++index) {
+        for (uint32_t index = 0; index < field.length; ++index) {
             char c = field.start[index];
 
             if (c < '0' || c > '9') {
@@ -182,7 +175,7 @@ namespace {
             result = result * 10 + digit;
         }
 
-        value = negative ? -result : result;
+        value = result;
         return true;
     }
 
@@ -196,17 +189,6 @@ namespace {
         return hash;
     }
 
-    // uint32_t compactIdFromField(const FieldView& field) {
-    //     unsigned long long hash = 5381ULL;
-
-    //     for (uint32_t i = 0; i < field.length; ++i) {
-    //         hash = ((hash << 5) + hash) + static_cast<unsigned char>(field.start[i]);
-    //     }
-
-    //     return static_cast<uint32_t>(hash & 0xFFFFFFFFU);
-    // }
-
-    // THÊM HÀM NÀY VÀO CHỖ VỪA XÓA:
     std::string fieldToString(const FieldView& field) {
         return std::string(field.start, field.length);
     }
@@ -331,8 +313,8 @@ bool DataLoader::load(
         return false;
     }
 
-    char readBuffer[READ_BUFFER_SIZE];
-    char lineBuffer[MAX_LINE_SIZE];
+    char* readBuffer = new char[READ_BUFFER_SIZE];
+    char* lineBuffer = new char[MAX_LINE_SIZE];
 
     uint32_t lineLength = 0;
     bool firstLine = true;
@@ -396,5 +378,9 @@ bool DataLoader::load(
     }
 
     std::fclose(file);
+
+    delete[] readBuffer;
+    delete[] lineBuffer;
+
     return success;
 }
