@@ -30,8 +30,8 @@ private:
   struct Node {
     uint32_t id; ///< Mã định danh tĩnh 32-bit (Dictionary ID) vĩnh viễn phân bổ
                  ///< cho chuỗi.
-    Node *next; ///< Con trỏ trỏ tới Node tiếp theo nhằm giải quyết Hash
-                ///< Collision.
+    Node *next;  ///< Con trỏ trỏ tới Node tiếp theo nhằm giải quyết Hash
+                 ///< Collision.
 
     /**
      * @brief Khởi tạo một Node thực thể từ điển mới trên khối nhớ heap.
@@ -44,7 +44,7 @@ private:
   Node **buckets; ///< Bảng băm quản lý trực tiếp con trỏ Head của các danh sách
                   ///< liên kết.
   uint32_t
-      bucketCount; ///< Kích thước giới hạn trần của số lượng slots buckets.
+      bucketCount;   ///< Kích thước giới hạn trần của số lượng slots buckets.
   uint32_t keyCount; ///< Tổng số lượng chuỗi (string) duy nhất đã lập chỉ mục
                      ///< và tham gia vòng lặp cấp ID.
   DynamicArray<std::string>

@@ -19,25 +19,25 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="src\DataLoader.cpp" />
-    <ClCompile Include="src\HashIndex.cpp" />
+    <ClCompile Include="src\core\HashIndex.cpp" />
+    <ClCompile Include="src\core\StringPool.cpp" />
+    <ClCompile Include="src\indexing\SearchEngine.cpp" />
     <ClCompile Include="src\main.cpp" />
-    <ClCompile Include="src\QueryEngine.cpp" />
-    <ClCompile Include="src\SearchEngine.cpp" />
-    <ClCompile Include="src\StringPool.cpp" />
+    <ClCompile Include="src\query\QueryEngine.cpp" />
+    <ClCompile Include="src\storage\DataLoader.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="src\DataLoader.h" />
-    <ClInclude Include="src\DuplicateHashSet.h" />
-    <ClInclude Include="src\DynamicArray.h" />
-    <ClInclude Include="src\HashIndex.h" />
-    <ClInclude Include="src\LogChunk.h" />
-    <ClInclude Include="src\LogEntry.h" />
-    <ClInclude Include="src\LogStore.h" />
-    <ClInclude Include="src\QueryEngine.h" />
-    <ClInclude Include="src\SearchEngine.h" />
-    <ClInclude Include="src\SortUtils.h" />
-    <ClInclude Include="src\StringPool.h" />
+    <ClInclude Include="src\core\DuplicateHashSet.h" />
+    <ClInclude Include="src\core\DynamicArray.h" />
+    <ClInclude Include="src\core\HashIndex.h" />
+    <ClInclude Include="src\core\LogChunk.h" />
+    <ClInclude Include="src\core\LogEntry.h" />
+    <ClInclude Include="src\core\SortUtils.h" />
+    <ClInclude Include="src\core\StringPool.h" />
+    <ClInclude Include="src\indexing\SearchEngine.h" />
+    <ClInclude Include="src\query\QueryEngine.h" />
+    <ClInclude Include="src\storage\DataLoader.h" />
+    <ClInclude Include="src\storage\LogStore.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include=".gitignore" />
@@ -153,6 +153,7 @@
       <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
+      <AdditionalIncludeDirectories>$(ProjectDir)src</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>

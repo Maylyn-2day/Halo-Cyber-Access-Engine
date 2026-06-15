@@ -56,41 +56,66 @@ enum Location : uint8_t {
 /**
  * @brief Chuyển đổi enum EventType thành chuỗi hiển thị.
  */
-inline const char* eventTypeToString(EventType type) {
+inline const char *eventTypeToString(EventType type) {
   switch (type) {
-    case EVENT_LOGIN: return "LOGIN";
-    case EVENT_LOGOUT: return "LOGOUT";
-    case EVENT_TOKEN_REFRESH: return "TOKEN_REFRESH";
-    case EVENT_ACCESS: return "ACCESS";
-    case EVENT_FAILED_LOGIN: return "FAILED_LOGIN";
-    case EVENT_OPEN_APP: return "OPEN_APP";
-    case EVENT_DOWNLOAD: return "DOWNLOAD";
-    case EVENT_ADMIN_ACTION: return "ADMIN_ACTION";
-    default: return "UNKNOWN";
+  case EVENT_LOGIN:
+    return "LOGIN";
+  case EVENT_LOGOUT:
+    return "LOGOUT";
+  case EVENT_TOKEN_REFRESH:
+    return "TOKEN_REFRESH";
+  case EVENT_ACCESS:
+    return "ACCESS";
+  case EVENT_FAILED_LOGIN:
+    return "FAILED_LOGIN";
+  case EVENT_OPEN_APP:
+    return "OPEN_APP";
+  case EVENT_DOWNLOAD:
+    return "DOWNLOAD";
+  case EVENT_ADMIN_ACTION:
+    return "ADMIN_ACTION";
+  default:
+    return "UNKNOWN";
   }
 }
 
 /**
  * @brief Chuyển đổi enum Location thành chuỗi hiển thị.
  */
-inline const char* locationToString(Location loc) {
+inline const char *locationToString(Location loc) {
   switch (loc) {
-    case LOC_US: return "US";
-    case LOC_VN: return "VN";
-    case LOC_JP: return "JP";
-    case LOC_KR: return "KR";
-    case LOC_SG: return "SG";
-    case LOC_CN: return "CN";
-    case LOC_DE: return "DE";
-    case LOC_FR: return "FR";
-    case LOC_UK: return "UK";
-    case LOC_AU: return "AU";
-    case LOC_CA: return "CA";
-    case LOC_IN: return "IN";
-    case LOC_BR: return "BR";
-    case LOC_RU: return "RU";
-    case LOC_TH: return "TH";
-    default: return "UNKNOWN";
+  case LOC_US:
+    return "US";
+  case LOC_VN:
+    return "VN";
+  case LOC_JP:
+    return "JP";
+  case LOC_KR:
+    return "KR";
+  case LOC_SG:
+    return "SG";
+  case LOC_CN:
+    return "CN";
+  case LOC_DE:
+    return "DE";
+  case LOC_FR:
+    return "FR";
+  case LOC_UK:
+    return "UK";
+  case LOC_AU:
+    return "AU";
+  case LOC_CA:
+    return "CA";
+  case LOC_IN:
+    return "IN";
+  case LOC_BR:
+    return "BR";
+  case LOC_RU:
+    return "RU";
+  case LOC_TH:
+    return "TH";
+  default:
+    return "UNKNOWN";
   }
 }
 

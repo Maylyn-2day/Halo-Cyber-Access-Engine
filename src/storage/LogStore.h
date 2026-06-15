@@ -4,10 +4,10 @@
 
 #include <cstdint>
 
-#include "DynamicArray.h"
-#include "LogChunk.h"
-#include "LogEntry.h"
-#include "StringPool.h"
+#include "../core/DynamicArray.h"
+#include "../core/LogChunk.h"
+#include "../core/LogEntry.h"
+#include "../core/StringPool.h"
 
 /**
  * @brief Hệ thống lưu trữ trung tâm (Storage Engine) quản lý toàn bộ các
