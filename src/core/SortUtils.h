@@ -103,6 +103,45 @@ public:
     delete[] temp;
     temp = nullptr;
   }
+
+  /*
+   * lowerBound: Returns the first index i where arr[i]->timestamp >= target.
+   *
+   * Binary search on a DynamicArray sorted ascending by timestamp.
+   * Complexity: O(log N) — replaces the previous O(N) linear scan in
+   * printUserJourney / printResourceJourney. Critical for 10M-row performance.
+   *
+   * Precondition: arr has been sorted by sortByTimestamp().
+   */
+  static uint32_t lowerBound(const DynamicArray<const LogEntry *> &arr,
+                              int64_t target) {
+    uint32_t lo = 0;
+    uint32_t hi = arr.size();
+    while (lo < hi) {
+      uint32_t mid = lo + (hi - lo) / 2;
+      if (arr[mid]->timestamp < target) lo = mid + 1;
+      else hi = mid;
+    }
+    return lo;
+  }
+
+  /*
+   * upperBound: Returns the first index i where arr[i]->timestamp > target.
+   *
+   * Combined with lowerBound, provides range [lo, hi) covering all entries
+   * within [startTime, endTime]. Complexity: O(log N).
+   */
+  static uint32_t upperBound(const DynamicArray<const LogEntry *> &arr,
+                              int64_t target) {
+    uint32_t lo = 0;
+    uint32_t hi = arr.size();
+    while (lo < hi) {
+      uint32_t mid = lo + (hi - lo) / 2;
+      if (arr[mid]->timestamp <= target) lo = mid + 1;
+      else hi = mid;
+    }
+    return lo;
+  }
 };
 
 #endif

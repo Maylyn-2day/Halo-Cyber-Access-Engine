@@ -2,7 +2,7 @@
 #ifndef LOG_CHUNK_H
 #define LOG_CHUNK_H
 
-#include <cstdint>
+#include <climits>
 
 #include "LogEntry.h"
 
@@ -23,6 +23,19 @@ private:
   uint32_t capacity;
   uint32_t count;
 
+  /**
+   * @brief Timestamps nhỏ nhất và lớn nhất trong Chunk. Được cập nhật O(1)
+   * sau mỗi lần append().
+   *
+   * Quyết định kiến trúc: Hai trường metadata này cho phép QueryEngine bỏ qua
+   * (skip) toàn bộ Chunk chỉ bằng 2 phép so sánh số nguyên khi truy vấn
+   * time-range không giao nhau với Chunk. Trên 10M rows / 8192 entries-per-chunk,
+   * điều này có thể cắt giảm 90%+ số Chunk cần quét, cải thiện tốc độ từ
+   * O(N) xuống O(overlapping_entries).
+   */
+  int64_t minTimestamp;
+  int64_t maxTimestamp;
+
 public:
   /**
    * @brief Khởi tạo một Chunk mới với sức chứa (capacity) được chỉ định.
@@ -36,7 +49,8 @@ public:
    * nhất.
    */
   explicit LogChunk(uint32_t chunkCapacity)
-      : entries(nullptr), capacity(chunkCapacity), count(0) {
+      : entries(nullptr), capacity(chunkCapacity), count(0),
+        minTimestamp(INT64_MAX), maxTimestamp(INT64_MIN) {
     if (capacity > 0) {
       entries = new LogEntry[capacity];
     }
@@ -95,6 +109,9 @@ public:
     LogEntry *stored = &entries[count];
     ++count;
 
+    if (entry.timestamp < minTimestamp) minTimestamp = entry.timestamp;
+    if (entry.timestamp > maxTimestamp) maxTimestamp = entry.timestamp;
+
     return stored;
   }
 
@@ -119,6 +136,18 @@ public:
    * @brief Lấy sức chứa tối đa của Chunk.
    */
   uint32_t getCapacity() const { return capacity; }
+
+  /**
+   * @brief Trả về timestamp nhỏ nhất trong Chunk (O(1)).
+   * Được dùng bởi QueryEngine để skip Chunk không nằm trong time-range.
+   */
+  int64_t getMinTimestamp() const { return minTimestamp; }
+
+  /**
+   * @brief Trả về timestamp lớn nhất trong Chunk (O(1)).
+   * Được dùng bởi QueryEngine để skip Chunk không nằm trong time-range.
+   */
+  int64_t getMaxTimestamp() const { return maxTimestamp; }
 };
 
 #endif

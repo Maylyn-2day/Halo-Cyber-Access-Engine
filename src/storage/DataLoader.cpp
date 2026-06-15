@@ -283,10 +283,10 @@ bool processLine(const char *line, uint32_t length, bool &firstLine,
   }
 
   LogEntry entry(
-      store.stringPool.getOrCreateId(fieldToString(parsed.userId)),
-      store.stringPool.getOrCreateId(fieldToString(parsed.deviceId)),
-      store.stringPool.getOrCreateId(fieldToString(parsed.appId)),
-      store.stringPool.getOrCreateId(fieldToString(parsed.resourceId)),
+      store.stringPool.getOrCreateId(parsed.userId.start, parsed.userId.length),
+      store.stringPool.getOrCreateId(parsed.deviceId.start, parsed.deviceId.length),
+      store.stringPool.getOrCreateId(parsed.appId.start, parsed.appId.length),
+      store.stringPool.getOrCreateId(parsed.resourceId.start, parsed.resourceId.length),
       parsed.eventType, parsed.location, parsed.timestamp);
 
   return store.insert(entry) != nullptr;
