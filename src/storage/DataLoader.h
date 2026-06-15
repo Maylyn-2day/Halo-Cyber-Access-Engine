@@ -4,7 +4,7 @@
 
 #include <string>
 
-#include "DuplicateHashSet.h"
+#include "../core/DuplicateHashSet.h"
 #include "LogStore.h"
 
 /**

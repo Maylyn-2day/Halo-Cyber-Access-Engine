@@ -15,57 +15,57 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="src\DataLoader.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="src\HashIndex.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="src\main.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\QueryEngine.cpp">
+    <ClCompile Include="src\core\HashIndex.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\SearchEngine.cpp">
+    <ClCompile Include="src\indexing\SearchEngine.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\StringPool.cpp">
+    <ClCompile Include="src\query\QueryEngine.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="src\storage\DataLoader.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="src\core\StringPool.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="src\DataLoader.h">
+    <ClInclude Include="src\core\DuplicateHashSet.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="src\DuplicateHashSet.h">
+    <ClInclude Include="src\core\DynamicArray.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="src\DynamicArray.h">
+    <ClInclude Include="src\core\HashIndex.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="src\HashIndex.h">
+    <ClInclude Include="src\core\LogChunk.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="src\LogChunk.h">
+    <ClInclude Include="src\core\LogEntry.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="src\LogEntry.h">
+    <ClInclude Include="src\core\SortUtils.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="src\LogStore.h">
+    <ClInclude Include="src\core\StringPool.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="src\QueryEngine.h">
+    <ClInclude Include="src\indexing\SearchEngine.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="src\SearchEngine.h">
+    <ClInclude Include="src\query\QueryEngine.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="src\SortUtils.h">
+    <ClInclude Include="src\storage\DataLoader.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="src\StringPool.h">
+    <ClInclude Include="src\storage\LogStore.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

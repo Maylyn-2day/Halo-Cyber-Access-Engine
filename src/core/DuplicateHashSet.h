@@ -47,11 +47,12 @@ private:
 
   FingerprintNode **buckets; ///< Mảng động chứa các con trỏ gốc (Head Pointers)
                              ///< trỏ tới các danh sách liên kết.
-  uint32_t bucketCount; ///< Kích thước (số lượng bucket) của bảng băm.
+  uint32_t bucketCount;      ///< Kích thước (số lượng bucket) của bảng băm.
   uint32_t itemCount; ///< Tổng số lượng fingerprint duy nhất đang được lưu trữ.
 
   /**
-   * @brief Tự động tái phân bổ và băm lại (Rehashing) khi hệ số tải vượt ngưỡng.
+   * @brief Tự động tái phân bổ và băm lại (Rehashing) khi hệ số tải vượt
+   * ngưỡng.
    *
    * @param newBucketCount Kích thước mới của bảng băm.
    */
@@ -65,7 +66,8 @@ private:
       FingerprintNode *current = buckets[i];
       while (current != nullptr) {
         FingerprintNode *next = current->next;
-        uint32_t newIndex = static_cast<uint32_t>(current->fingerprint % newBucketCount);
+        uint32_t newIndex =
+            static_cast<uint32_t>(current->fingerprint % newBucketCount);
         current->next = newBuckets[newIndex];
         newBuckets[newIndex] = current;
         current = next;
