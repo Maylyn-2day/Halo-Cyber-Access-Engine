@@ -91,6 +91,24 @@ public:
   LogStore &operator=(const LogStore &other) = delete;
 
   /**
+   * @brief Xóa toàn bộ dữ liệu, giải phóng chunks, reset StringPool.
+   * An toàn hơn so với destructor + placement new.
+   */
+  void reset() {
+    for (uint32_t i = 0; i < chunks.size(); ++i) {
+      delete chunks[i];
+    }
+    chunks.clear();
+    currentChunk = nullptr;
+    totalEntries = 0;
+
+    // Reset StringPool: hủy cũ, tạo mới in-place
+    stringPool.~StringPool();
+    new (&stringPool) StringPool();
+    stringPool.reserve(262147);
+  }
+
+  /**
    * @brief Đặt trước bộ nhớ cho cấu trúc chỉ mục mảng Chunk.
    *
    * @param estimatedChunks Tổng lượng chunk dự kiến.

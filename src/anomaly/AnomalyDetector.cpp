@@ -2,7 +2,8 @@
 #define _CRT_SECURE_NO_WARNINGS
 #include "AnomalyDetector.h"
 #include "../core/StringPool.h"
-#include "../indexing/SearchEngine.h" // Nơi chứa hàm lấy timeline
+#include "../indexing/SearchEngine.h"
+#include "../ConsoleColor.h"
 #include <cstdio>
 #include <ctime>
 #include <iostream>
@@ -320,19 +321,27 @@ const char *AnomalyDetector::anomalyTypeToString(AnomalyType type) {
 // ============================================================================
 
 void AnomalyDetector::printReport(const StringPool &pool) const {
-  std::cout << "\n";
-  std::cout << "============================================================\n";
-  std::cout << "       HALO CYBER ACCESS ENGINE - ANOMALY REPORT            \n";
-  std::cout << "============================================================\n";
+  std::cout << '\n';
+  std::cout << ConsoleColor::CYAN
+            << "============================================================"
+            << ConsoleColor::RESET << '\n';
+  std::cout << ConsoleColor::BCYAN
+            << "       HALO CYBER ACCESS ENGINE - ANOMALY REPORT            "
+            << ConsoleColor::RESET << '\n';
+  std::cout << ConsoleColor::CYAN
+            << "============================================================"
+            << ConsoleColor::RESET << '\n';
 
   if (results.size() == 0) {
-    std::cout << "  [OK] No anomalies detected.\n";
-    std::cout
-        << "============================================================\n";
+    std::cout << ConsoleColor::BGREEN << "  [OK] No anomalies detected."
+              << ConsoleColor::RESET << '\n';
+    std::cout << ConsoleColor::CYAN
+              << "============================================================"
+              << ConsoleColor::RESET << '\n';
     return;
   }
 
-  // --- 1. Đếm theo loại anomaly ---
+  // --- 1. Dem theo loai anomaly ---
   const uint32_t TYPE_COUNT = 11;
   uint32_t countByType[TYPE_COUNT] = {};
   for (uint32_t i = 0; i < results.size(); ++i) {
@@ -344,47 +353,61 @@ void AnomalyDetector::printReport(const StringPool &pool) const {
   std::cout << "\n  SEVERITY BREAKDOWN\n";
   std::cout << "  ----------------------------------------------------------\n";
 
-  // Critical (Đỏ)
+  // Critical (Do sang)
   uint32_t critical = countByType[9] + countByType[4] + countByType[10];
-  std::cout << "  [CRITICAL] " << critical << " alerts\n";
+  std::cout << ConsoleColor::BRED << "  [CRITICAL] " << critical << " alerts"
+            << ConsoleColor::RESET << '\n';
   if (countByType[9] > 0)
-    std::cout << "    - Brute-Force Success : " << countByType[9] << "\n";
+    std::cout << ConsoleColor::BRED << "    - Brute-Force Success : "
+              << countByType[9] << ConsoleColor::RESET << '\n';
   if (countByType[4] > 0)
-    std::cout << "    - Impossible Travel   : " << countByType[4] << "\n";
+    std::cout << ConsoleColor::BRED << "    - Impossible Travel   : "
+              << countByType[4] << ConsoleColor::RESET << '\n';
   if (countByType[10] > 0)
-    std::cout << "    - Dormant Account     : " << countByType[10] << "\n";
+    std::cout << ConsoleColor::BRED << "    - Dormant Account     : "
+              << countByType[10] << ConsoleColor::RESET << '\n';
 
-  // High (Cam)
+  // High (Vang sang)
   uint32_t high = countByType[7] + countByType[5] + countByType[2];
-  std::cout << "  [HIGH]     " << high << " alerts\n";
+  std::cout << ConsoleColor::BYELLOW << "  [HIGH]     " << high << " alerts"
+            << ConsoleColor::RESET << '\n';
   if (countByType[7] > 0)
-    std::cout << "    - Danger Chain        : " << countByType[7] << "\n";
+    std::cout << ConsoleColor::BYELLOW << "    - Danger Chain        : "
+              << countByType[7] << ConsoleColor::RESET << '\n';
   if (countByType[5] > 0)
-    std::cout << "    - Multi-Country Hop   : " << countByType[5] << "\n";
+    std::cout << ConsoleColor::BYELLOW << "    - Multi-Country Hop   : "
+              << countByType[5] << ConsoleColor::RESET << '\n';
   if (countByType[2] > 0)
-    std::cout << "    - Resource Scan       : " << countByType[2] << "\n";
+    std::cout << ConsoleColor::BYELLOW << "    - Resource Scan       : "
+              << countByType[2] << ConsoleColor::RESET << '\n';
 
-  // Medium (Vàng)
+  // Medium (Vang)
   uint32_t medium =
       countByType[0] + countByType[1] + countByType[8] + countByType[6];
-  std::cout << "  [MEDIUM]   " << medium << " alerts\n";
+  std::cout << ConsoleColor::YELLOW << "  [MEDIUM]   " << medium << " alerts"
+            << ConsoleColor::RESET << '\n';
   if (countByType[0] > 0)
-    std::cout << "    - Brute Force         : " << countByType[0] << "\n";
+    std::cout << ConsoleColor::YELLOW << "    - Brute Force         : "
+              << countByType[0] << ConsoleColor::RESET << '\n';
   if (countByType[1] > 0)
-    std::cout << "    - Device Hopping      : " << countByType[1] << "\n";
+    std::cout << ConsoleColor::YELLOW << "    - Device Hopping      : "
+              << countByType[1] << ConsoleColor::RESET << '\n';
   if (countByType[8] > 0)
-    std::cout << "    - Rapid Session       : " << countByType[8] << "\n";
+    std::cout << ConsoleColor::YELLOW << "    - Rapid Session       : "
+              << countByType[8] << ConsoleColor::RESET << '\n';
   if (countByType[6] > 0)
-    std::cout << "    - Long Session        : " << countByType[6] << "\n";
+    std::cout << ConsoleColor::YELLOW << "    - Long Session        : "
+              << countByType[6] << ConsoleColor::RESET << '\n';
 
-  // Low (Xám)
+  // Low (Xam)
   uint32_t low = countByType[3];
-  std::cout << "  [LOW]      " << low << " alerts\n";
+  std::cout << ConsoleColor::GRAY << "  [LOW]      " << low << " alerts"
+            << ConsoleColor::RESET << '\n';
   if (countByType[3] > 0)
-    std::cout << "    - Out-of-Hours        : " << countByType[3] << "\n";
+    std::cout << ConsoleColor::GRAY << "    - Out-of-Hours        : "
+              << countByType[3] << ConsoleColor::RESET << '\n';
 
-  // --- 2. Top 5 User vi phạm nhiều nhất ---
-  // Dùng mảng đếm trực tiếp (Direct-Address) rồi tìm top 5
+  // --- 2. Top 5 User vi pham nhieu nhat ---
   uint32_t *userCounts = new uint32_t[contextCapacity]();
   for (uint32_t i = 0; i < results.size(); ++i) {
     if (results[i].userId < contextCapacity)
@@ -405,18 +428,21 @@ void AnomalyDetector::printReport(const StringPool &pool) const {
     }
     if (maxCount == 0)
       break;
-    std::cout << "    " << (rank + 1) << ". " << pool.getString(maxId) << " ("
-              << maxCount << " alerts)\n";
-    userCounts[maxId] = 0; // Loại khỏi vòng tiếp
+    std::cout << ConsoleColor::BRED << "    " << (rank + 1) << ". "
+              << pool.getString(maxId) << ConsoleColor::RESET
+              << " (" << maxCount << " alerts)\n";
+    userCounts[maxId] = 0;
   }
 
   delete[] userCounts;
 
-  // --- 3. Tổng kết ---
-  std::cout
-      << "\n  ----------------------------------------------------------\n";
-  std::cout << "  TOTAL: " << results.size() << " anomalies detected.\n";
-  std::cout << "============================================================\n";
+  // --- 3. Tong ket ---
+  std::cout << "\n  ----------------------------------------------------------\n";
+  std::cout << "  TOTAL: " << ConsoleColor::BRED << results.size()
+            << ConsoleColor::RESET << " anomalies detected.\n";
+  std::cout << ConsoleColor::CYAN
+            << "============================================================"
+            << ConsoleColor::RESET << '\n';
 }
 
 // ============================================================================
@@ -427,6 +453,8 @@ bool AnomalyDetector::exportToCSV(const char *filepath,
                                   const StringPool &pool) const {
   FILE *file = std::fopen(filepath, "w");
   if (file == nullptr) {
+    std::cerr << "[AnomalyDetector] Cannot create report file '" << filepath
+              << "'\n";
     return false;
   }
 

@@ -22,6 +22,9 @@ public:
 
   void buildIndices(const LogStore &store);
 
+  /// Xóa toàn bộ indices. Gọi trước buildIndices() để re-index an toàn.
+  void reset();
+
   const DynamicArray<const LogEntry *> *searchByUser(uint32_t userId) const;
   const DynamicArray<const LogEntry *> *
   searchByResource(uint32_t resourceId) const;

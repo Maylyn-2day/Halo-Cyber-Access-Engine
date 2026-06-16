@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <iostream>
 
 // Platform-specific headers for Memory-Mapped I/O
 #if defined(_WIN32)
@@ -323,11 +324,13 @@ bool DataLoader::load(const std::string &filename, LogStore &store,
       FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
 
   if (hFile == INVALID_HANDLE_VALUE) {
+    std::cerr << "[DataLoader] Cannot open file '" << filename << "'\n";
     return false;
   }
 
   LARGE_INTEGER liSize;
   if (!GetFileSizeEx(hFile, &liSize)) {
+    std::cerr << "[DataLoader] Cannot get file size for '" << filename << "'\n";
     CloseHandle(hFile);
     return false;
   }
@@ -342,6 +345,7 @@ bool DataLoader::load(const std::string &filename, LogStore &store,
       CreateFileMappingA(hFile, nullptr, PAGE_READONLY, 0, 0, nullptr);
 
   if (hMapping == nullptr) {
+    std::cerr << "[DataLoader] CreateFileMapping failed for '" << filename << "'\n";
     CloseHandle(hFile);
     return false;
   }
@@ -350,6 +354,7 @@ bool DataLoader::load(const std::string &filename, LogStore &store,
       MapViewOfFile(hMapping, FILE_MAP_READ, 0, 0, 0));
 
   if (mappedData == nullptr) {
+    std::cerr << "[DataLoader] MapViewOfFile failed for '" << filename << "'\n";
     CloseHandle(hMapping);
     CloseHandle(hFile);
     return false;
@@ -359,11 +364,13 @@ bool DataLoader::load(const std::string &filename, LogStore &store,
   // --- Linux/macOS: mmap ---
   int fd = open(filename.c_str(), O_RDONLY);
   if (fd == -1) {
+    std::cerr << "[DataLoader] Cannot open file '" << filename << "'\n";
     return false;
   }
 
   struct stat st;
   if (fstat(fd, &st) == -1) {
+    std::cerr << "[DataLoader] Cannot stat file '" << filename << "'\n";
     close(fd);
     return false;
   }
@@ -378,6 +385,7 @@ bool DataLoader::load(const std::string &filename, LogStore &store,
       mmap(nullptr, fileSize, PROT_READ, MAP_PRIVATE, fd, 0));
 
   if (mappedData == MAP_FAILED) {
+    std::cerr << "[DataLoader] mmap failed for '" << filename << "'\n";
     close(fd);
     return false;
   }

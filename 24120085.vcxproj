@@ -35,6 +35,7 @@
     <ClInclude Include="src\anomaly\DeviceContext.h" />
     <ClInclude Include="src\anomaly\RingBuffer.h" />
     <ClInclude Include="src\anomaly\UserContext.h" />
+    <ClInclude Include="src\ConsoleColor.h" />
     <ClInclude Include="src\core\DuplicateHashSet.h" />
     <ClInclude Include="src\core\DynamicArray.h" />
     <ClInclude Include="src\core\HashIndex.h" />
