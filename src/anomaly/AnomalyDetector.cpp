@@ -4,7 +4,6 @@
 #include "../indexing/SearchEngine.h" // Nơi chứa hàm lấy timeline
 #include <iostream>
 
-
 // ============================================================================
 // Quản lý Vòng đời & Orchestrator
 // ============================================================================
@@ -50,7 +49,7 @@ void AnomalyDetector::processEvent(const LogEntry *entry) {
   DeviceContext &dCtx = deviceContexts[entry->deviceId];
 
   // --- XỬ LÝ VÒNG ĐỜI SESSION TRƯỚC ---
-  if (entry->eventType == 1) { // Giả sử 1 là EVENT_LOGIN
+  if (entry->eventType == EVENT_LOGIN) {
     if (uCtx.hasActiveSession) {
       // Bị đè Session (Login khi chưa Logout) -> Chốt sổ session cũ
       checkLongSession(uCtx, entry);
@@ -77,7 +76,7 @@ void AnomalyDetector::processEvent(const LogEntry *entry) {
   }
   checkRapidSession(uCtx, entry);
 
-  if (entry->eventType == 2) { // Giả sử 2 là EVENT_LOGOUT
+  if (entry->eventType == EVENT_LOGOUT) {
     checkLongSession(uCtx, entry);
     uCtx.hasActiveSession = false;
   }
@@ -103,7 +102,7 @@ void AnomalyDetector::processEvent(const LogEntry *entry) {
 
 // Luật 1: Brute Force
 void AnomalyDetector::checkBruteForce(UserContext &ctx, const LogEntry *e) {
-  if (e->eventType == 3) { // 3 = EVENT_FAILED_LOGIN
+  if (e->eventType == EVENT_FAILED_LOGIN) {
     ctx.failedLoginWindow.push(e->timestamp);
     if (ctx.failedLoginWindow.isThresholdBreached(
             e->timestamp, AnomalyRules::BRUTE_FORCE_WINDOW_SEC)) {
@@ -115,7 +114,7 @@ void AnomalyDetector::checkBruteForce(UserContext &ctx, const LogEntry *e) {
 
 // Luật 2: Device Hopping
 void AnomalyDetector::checkDeviceHopping(UserContext &ctx, const LogEntry *e) {
-  if (e->eventType == 1) { // Chỉ tính lúc LOGIN
+  if (e->eventType == EVENT_LOGIN) {
     ctx.deviceHopWindow.push(e->timestamp, e->deviceId);
     if (ctx.deviceHopWindow.isThresholdBreached(
             e->timestamp, AnomalyRules::DEVICE_HOP_WINDOW_SEC)) {
@@ -202,7 +201,7 @@ void AnomalyDetector::checkLongSession(UserContext &ctx, const LogEntry *e) {
 
 // Luật 8: Danger Chain (Hành động quản trị đáng ngờ)
 void AnomalyDetector::checkDangerChain(UserContext &ctx, const LogEntry *e) {
-  if (e->eventType == 4 || e->eventType == 5) { // Giả sử 4=ADMIN, 5=DOWNLOAD
+  if (e->eventType == EVENT_ADMIN_ACTION || e->eventType == EVENT_DOWNLOAD) {
     ctx.dangerousActionCount++;
     if (ctx.dangerousActionCount >= AnomalyRules::DANGER_CHAIN_THRESHOLD) {
       recordAnomaly(AnomalyType::DANGER_CHAIN, e);
@@ -213,7 +212,7 @@ void AnomalyDetector::checkDangerChain(UserContext &ctx, const LogEntry *e) {
 
 // Luật 9: Rapid Session (Spam mở ứng dụng)
 void AnomalyDetector::checkRapidSession(UserContext &ctx, const LogEntry *e) {
-  if (e->eventType == 1) { // LOGIN
+  if (e->eventType == EVENT_LOGIN) {
     ctx.sessionStartWindow.push(e->timestamp);
     if (ctx.sessionStartWindow.isThresholdBreached(
             e->timestamp, AnomalyRules::RAPID_SESSION_WINDOW_SEC)) {
@@ -226,10 +225,10 @@ void AnomalyDetector::checkRapidSession(UserContext &ctx, const LogEntry *e) {
 // Luật 10: Brute-Force Success (Nâng cao 1)
 void AnomalyDetector::checkBruteForceSuccess(UserContext &ctx,
                                              const LogEntry *e) {
-  if (e->eventType == 3) { // FAILED_LOGIN
+  if (e->eventType == EVENT_FAILED_LOGIN) {
     ctx.consecutiveFailedCount++;
   } else {
-    if (e->eventType == 1 &&
+    if (e->eventType == EVENT_LOGIN &&
         ctx.consecutiveFailedCount >= AnomalyRules::BRUTE_FORCE_THRESHOLD) {
       recordAnomaly(AnomalyType::BRUTE_FORCE_SUCCESS, e);
     }

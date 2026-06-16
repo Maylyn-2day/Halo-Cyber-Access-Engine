@@ -4,13 +4,12 @@
 #include <limits>
 #include <string>
 
-
+#include "anomaly/AnomalyDetector.h"
 #include "core/DuplicateHashSet.h"
 #include "indexing/SearchEngine.h"
 #include "query/QueryEngine.h"
 #include "storage/DataLoader.h"
 #include "storage/LogStore.h"
-
 
 namespace {
 const std::string DEFAULT_CSV_PATH = "data.csv";
@@ -154,6 +153,11 @@ int main() {
                      .count();
 
   std::cout << "Indexing time: " << indexMs << " ms\n";
+
+  // Sau khi engine.buildIndices(store):
+  AnomalyDetector detector(store.stringPool.size());
+  detector.runAll(engine, store.stringPool);
+  detector.printReport(store.stringPool);
 
   while (true) {
     int choice = -1;
