@@ -21,6 +21,9 @@ private:
   static void insertIntoTop10(TopResource topResources[10], uint32_t resourceId,
                               uint32_t count);
 
+  // Chuyển epoch timestamp → chuỗi "YYYY-MM-DD HH:MM:SS" (UTC)
+  static void formatTimestamp(int64_t epoch, char *buffer, uint32_t bufferSize);
+
 public:
   static void printUserJourney(uint32_t userId, int64_t startTime,
                                int64_t endTime, const SearchEngine &engine,
