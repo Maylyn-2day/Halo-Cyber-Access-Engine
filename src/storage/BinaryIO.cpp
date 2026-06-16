@@ -4,6 +4,7 @@
 
 #include <cstdio>
 #include <cstring>
+#include <iostream>
 
 #include "../core/LogChunk.h"
 #include "../core/LogEntry.h"
@@ -107,6 +108,7 @@ bool BinaryIO::dump(const char *filepath, const LogStore &store,
                     const std::string &csvPath) {
   FILE *file = std::fopen(filepath, "wb");
   if (file == nullptr) {
+    std::cerr << "[BinaryIO] dump: Cannot create file '" << filepath << "'\n";
     return false;
   }
 
@@ -133,6 +135,7 @@ bool BinaryIO::dump(const char *filepath, const LogStore &store,
 
   // Ghi header (sẽ được cập nhật lại nếu cần)
   if (std::fwrite(&header, sizeof(header), 1, file) != 1) {
+    std::cerr << "[BinaryIO] dump: Failed to write header\n";
     std::fclose(file);
     return false;
   }
@@ -177,12 +180,14 @@ bool BinaryIO::dump(const char *filepath, const LogStore &store,
 bool BinaryIO::load(const char *filepath, LogStore &store) {
   FILE *file = std::fopen(filepath, "rb");
   if (file == nullptr) {
+    std::cerr << "[BinaryIO] load: Cannot open file '" << filepath << "'\n";
     return false;
   }
 
   // --- Đọc và validate Header ---
   BinaryHeader header;
   if (std::fread(&header, sizeof(header), 1, file) != 1) {
+    std::cerr << "[BinaryIO] load: Failed to read header (file too small?)\n";
     std::fclose(file);
     return false;
   }
@@ -190,12 +195,15 @@ bool BinaryIO::load(const char *filepath, LogStore &store) {
   // Validate magic number
   if (header.magic[0] != 'H' || header.magic[1] != 'A' ||
       header.magic[2] != 'L' || header.magic[3] != 'O') {
+    std::cerr << "[BinaryIO] load: Invalid magic number (not a Halo binary)\n";
     std::fclose(file);
     return false;
   }
 
   // Validate version
   if (header.version != 1) {
+    std::cerr << "[BinaryIO] load: Unsupported version " << header.version
+              << " (expected 1)\n";
     std::fclose(file);
     return false;
   }
@@ -203,11 +211,14 @@ bool BinaryIO::load(const char *filepath, LogStore &store) {
   // --- Section 1: Restore StringPool ---
   uint32_t stringCount = 0;
   if (std::fread(&stringCount, sizeof(uint32_t), 1, file) != 1) {
+    std::cerr << "[BinaryIO] load: Failed to read string count\n";
     std::fclose(file);
     return false;
   }
 
   if (stringCount != header.stringCount) {
+    std::cerr << "[BinaryIO] load: String count mismatch (header="
+              << header.stringCount << ", section=" << stringCount << ")\n";
     std::fclose(file);
     return false;
   }
@@ -220,16 +231,20 @@ bool BinaryIO::load(const char *filepath, LogStore &store) {
   for (uint32_t i = 0; i < stringCount; ++i) {
     uint32_t strLen = 0;
     if (std::fread(&strLen, sizeof(uint32_t), 1, file) != 1) {
+      std::cerr << "[BinaryIO] load: Failed to read string length at index " << i << "\n";
       std::fclose(file);
       return false;
     }
 
     if (strLen >= sizeof(strBuffer)) {
+      std::cerr << "[BinaryIO] load: String #" << i << " too long ("
+                << strLen << " bytes, max 4095)\n";
       std::fclose(file);
-      return false; // String quá dài — dữ liệu bất thường
+      return false;
     }
 
     if (std::fread(strBuffer, 1, strLen, file) != strLen) {
+      std::cerr << "[BinaryIO] load: Failed to read string data at index " << i << "\n";
       std::fclose(file);
       return false;
     }
@@ -247,6 +262,7 @@ bool BinaryIO::load(const char *filepath, LogStore &store) {
     if (std::fread(&entryCount, sizeof(uint32_t), 1, file) != 1 ||
         std::fread(&minTs, sizeof(int64_t), 1, file) != 1 ||
         std::fread(&maxTs, sizeof(int64_t), 1, file) != 1) {
+      std::cerr << "[BinaryIO] load: Failed to read chunk #" << c << " metadata\n";
       std::fclose(file);
       return false;
     }
@@ -258,6 +274,8 @@ bool BinaryIO::load(const char *filepath, LogStore &store) {
     if (entryCount > 0) {
       if (std::fread(chunk->raw(), sizeof(LogEntry), entryCount, file) !=
           entryCount) {
+        std::cerr << "[BinaryIO] load: Failed to read " << entryCount
+                  << " entries from chunk #" << c << "\n";
         delete chunk;
         std::fclose(file);
         return false;
@@ -277,7 +295,8 @@ bool BinaryIO::load(const char *filepath, LogStore &store) {
   // --- Verify checksum ---
   uint64_t computed = computeChecksum(store);
   if (computed != header.checksum) {
-    return false; // Dữ liệu bị hỏng — caller sẽ fallback về CSV
+    std::cerr << "[BinaryIO] load: Checksum mismatch — file corrupted\n";
+    return false;
   }
 
   return true;

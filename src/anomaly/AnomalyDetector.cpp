@@ -427,6 +427,8 @@ bool AnomalyDetector::exportToCSV(const char *filepath,
                                   const StringPool &pool) const {
   FILE *file = std::fopen(filepath, "w");
   if (file == nullptr) {
+    std::cerr << "[AnomalyDetector] Cannot create report file '" << filepath
+              << "'\n";
     return false;
   }
 
