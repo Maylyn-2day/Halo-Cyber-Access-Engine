@@ -7,7 +7,6 @@
 #include "RingBuffer.h"
 #include <cstdint>
 
-
 /**
  * @brief Quản lý toàn bộ trạng thái của một người dùng.
  * Kích thước đã được căn chỉnh (Memory Padding) để tối ưu với CPU Cache.
@@ -33,6 +32,7 @@ struct UserContext {
   // Luật 2 (Device Hopping): Quan tâm số lượng thiết bị khác nhau, dùng bản
   // Timestamped
   TimestampedRingBuffer<AnomalyRules::DEVICE_HOP_THRESHOLD> deviceHopWindow;
+  uint32_t lastDeviceId;
 
   // Luật 4 (Out-of-hours): Cờ chặn spam hàng triệu log cho người làm ca đêm
   bool outOfHoursReported;
