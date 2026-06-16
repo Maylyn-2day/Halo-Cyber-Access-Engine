@@ -36,4 +36,4 @@ struct AnomalyRecord {
   }
 };
 
-#endif // ANOMALY_RECORD_H
+#endif
