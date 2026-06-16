@@ -148,6 +148,18 @@ public:
    * Được dùng bởi QueryEngine để skip Chunk không nằm trong time-range.
    */
   int64_t getMaxTimestamp() const { return maxTimestamp; }
-};
 
+  /**
+   * @brief Cho phép BinaryIO khôi phục timestamp metadata khi load binary.
+   */
+  void setTimestampRange(int64_t min, int64_t max) {
+    minTimestamp = min;
+    maxTimestamp = max;
+  }
+
+  /**
+   * @brief Cho phép BinaryIO thiết lập count sau khi fread nguyên khối entries.
+   */
+  void setCount(uint32_t c) { count = c; }
+};
 #endif

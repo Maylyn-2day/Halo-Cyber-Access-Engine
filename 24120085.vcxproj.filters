@@ -36,6 +36,9 @@
     <ClCompile Include="src\anomaly\AnomalyDetector.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="src\storage\BinaryIO.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\core\DuplicateHashSet.h">
@@ -87,6 +90,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="src\anomaly\UserContext.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="src\storage\BinaryIO.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
