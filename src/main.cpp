@@ -14,16 +14,19 @@
 #include "storage/BinaryIO.h"
 #include "storage/DataLoader.h"
 #include "storage/LogStore.h"
+#include "ConsoleColor.h"
 
 namespace {
 const std::string DEFAULT_CSV_PATH = "data.csv";
-const std::string BINARY_PATH = "halo_db.bin";
+const std::string BINARY_PATH = "data/halo_db.bin";
 
 const int64_t DEFAULT_START = 0;
 const int64_t DEFAULT_END = 2000000000;
 
 void printDivider() {
-  std::cout << "============================================================\n";
+  std::cout << ConsoleColor::CYAN
+            << "============================================================"
+            << ConsoleColor::RESET << '\n';
 }
 
 void clearBadInput() {
@@ -152,14 +155,21 @@ void readTimeRange(int64_t &startTime, int64_t &endTime) {
 
 void printMenu() {
   printDivider();
-  std::cout << "Halo - Cyber Access Engine\n";
+  std::cout << ConsoleColor::BCYAN << "Halo - Cyber Access Engine"
+            << ConsoleColor::RESET << '\n';
   printDivider();
-  std::cout << "[1] User Journey\n";
-  std::cout << "[2] Resource History\n";
-  std::cout << "[3] Top 10 Resources\n";
-  std::cout << "[4] Anomaly Detection\n";
-  std::cout << "[5] Force Reload from CSV\n";
-  std::cout << "[0] Exit\n";
+  std::cout << ConsoleColor::CYAN << "[1]" << ConsoleColor::RESET
+            << " User Journey\n";
+  std::cout << ConsoleColor::CYAN << "[2]" << ConsoleColor::RESET
+            << " Resource History\n";
+  std::cout << ConsoleColor::CYAN << "[3]" << ConsoleColor::RESET
+            << " Top 10 Resources\n";
+  std::cout << ConsoleColor::CYAN << "[4]" << ConsoleColor::RESET
+            << " Anomaly Detection\n";
+  std::cout << ConsoleColor::YELLOW << "[5]" << ConsoleColor::RESET
+            << " Force Reload from CSV\n";
+  std::cout << ConsoleColor::GRAY << "[0]" << ConsoleColor::RESET
+            << " Exit\n";
   printDivider();
   std::cout << "Choice: ";
 }
@@ -171,13 +181,16 @@ void printQueryElapsedTime(
       std::chrono::duration_cast<std::chrono::microseconds>(end - start)
           .count();
 
-  std::cout << "Query execution time: " << elapsedUs << " us\n";
+  std::cout << ConsoleColor::YELLOW << "Query execution time: " << elapsedUs
+            << " us" << ConsoleColor::RESET << '\n';
 }
 } // namespace
 
 int main() {
+  ConsoleColor::init();
   printDivider();
-  std::cout << "Halo - Cyber Access Engine\n";
+  std::cout << ConsoleColor::BCYAN << "Halo - Cyber Access Engine\n"
+            << ConsoleColor::RESET;
   std::cout << "High-Performance In-Memory Log Analytics\n";
   printDivider();
 
@@ -198,7 +211,8 @@ int main() {
 
   // --- Chiến lược Smart Boot: Binary trước, CSV fallback ---
   if (BinaryIO::isValid(BINARY_PATH.c_str(), filename)) {
-    std::cout << "\n[*] Found valid binary snapshot: " << BINARY_PATH << "\n";
+    std::cout << ConsoleColor::YELLOW << "[*] Found valid binary snapshot: "
+              << BINARY_PATH << ConsoleColor::RESET << '\n';
     std::cout << "Loading from binary...\n";
 
     auto loadStart = std::chrono::high_resolution_clock::now();
@@ -211,10 +225,14 @@ int main() {
 
     if (loaded) {
       fromBinary = true;
-      std::cout << "Rows loaded: " << store.size() << '\n';
-      std::cout << "Binary load time: " << loadMs << " ms\n";
+      std::cout << ConsoleColor::BGREEN << "[INSTANT BOOT]"
+                << ConsoleColor::RESET << " Rows loaded: " << store.size()
+                << '\n';
+      std::cout << ConsoleColor::YELLOW << "Binary load time: " << loadMs
+                << " ms" << ConsoleColor::RESET << '\n';
     } else {
-      std::cout << "[!] Binary file corrupted. Falling back to CSV...\n";
+      std::cout << ConsoleColor::BRED << "[!] Binary file corrupted."
+                << ConsoleColor::RESET << " Falling back to CSV...\n";
       store.reset();
     }
   }
@@ -234,16 +252,22 @@ int main() {
                       .count();
 
     if (!loaded) {
-      std::cout << "Failed to load CSV file.\n";
+      std::cout << ConsoleColor::BRED << "Failed to load CSV file."
+                << ConsoleColor::RESET << '\n';
       return 1;
     }
 
-    std::cout << "Rows loaded: " << store.size() << '\n';
-    std::cout << "CSV ingestion time: " << loadMs << " ms\n";
+    std::cout << ConsoleColor::BYELLOW << "[FIRST RUN]"
+              << ConsoleColor::RESET << " Rows loaded: " << store.size()
+              << '\n';
+    std::cout << ConsoleColor::YELLOW << "CSV ingestion time: " << loadMs
+              << " ms" << ConsoleColor::RESET << '\n';
 
     // Dump binary snapshot cho lần chạy sau
     if (BinaryIO::dump(BINARY_PATH.c_str(), store, filename)) {
-      std::cout << "[+] Binary snapshot saved: " << BINARY_PATH << "\n";
+      std::cout << ConsoleColor::GREEN
+                << "[+] Binary snapshot saved for next boot: " << BINARY_PATH
+                << ConsoleColor::RESET << '\n';
     }
   }
 
@@ -366,7 +390,8 @@ int main() {
 
     if (choice == 4) {
       printDivider();
-      std::cout << "Running Anomaly Detection Engine...\n";
+      std::cout << ConsoleColor::BCYAN << "Running Anomaly Detection Engine..."
+                << ConsoleColor::RESET << '\n';
 
       auto queryStart = std::chrono::high_resolution_clock::now();
 
@@ -380,20 +405,35 @@ int main() {
 
       detector.printReport(store.stringPool);
 
-      if (detector.exportToCSV("anomaly_report.csv", store.stringPool)) {
-        std::cout << "\n[+] Detailed anomaly report exported to: "
-                     "anomaly_report.csv\n";
+      if (detector.exportToCSV("data/anomaly_report.csv", store.stringPool)) {
+        std::cout << ConsoleColor::GREEN
+                  << "\n[+] Detailed anomaly report exported to: "
+                     "data/anomaly_report.csv"
+                  << ConsoleColor::RESET << '\n';
       } else {
-        std::cout << "\n[!] Failed to export anomaly report.\n";
+        std::cout << ConsoleColor::BRED << "\n[!] Failed to export anomaly report."
+                  << ConsoleColor::RESET << '\n';
       }
 
-      std::cout << "[*] Anomaly scanning time: " << elapsedMs << " ms\n";
+      std::cout << ConsoleColor::YELLOW << "[*] Anomaly scanning time: "
+                << elapsedMs << " ms" << ConsoleColor::RESET << '\n';
 
       continue;
     }
 
     if (choice == 5) {
       printDivider();
+      std::cout << "This will discard the binary cache and re-parse CSV.\n";
+      std::cout << "Are you sure? [y/N]: ";
+
+      std::string confirm;
+      std::getline(std::cin, confirm);
+
+      if (confirm.empty() || (confirm[0] != 'y' && confirm[0] != 'Y')) {
+        std::cout << "Cancelled.\n";
+        continue;
+      }
+
       std::cout << "Force reloading from CSV: " << filename << "\n";
 
       store.reset();
@@ -409,12 +449,16 @@ int main() {
                         .count();
 
       if (!reloaded) {
-        std::cout << "[!] Failed to reload CSV.\n";
+        std::cout << ConsoleColor::BRED << "[!] Failed to reload CSV."
+                  << ConsoleColor::RESET << '\n';
         continue;
       }
 
-      std::cout << "Rows loaded: " << store.size() << '\n';
-      std::cout << "CSV ingestion time: " << loadMs << " ms\n";
+      std::cout << ConsoleColor::BGREEN << "[OK]"
+                << ConsoleColor::RESET << " Rows loaded: " << store.size()
+                << '\n';
+      std::cout << ConsoleColor::YELLOW << "CSV ingestion time: " << loadMs
+                << " ms" << ConsoleColor::RESET << '\n';
 
       // Rebuild indices
       engine.reset();
@@ -443,13 +487,16 @@ int main() {
 
       // Save new binary snapshot
       if (BinaryIO::dump(BINARY_PATH.c_str(), store, filename)) {
-        std::cout << "[+] Binary snapshot updated: " << BINARY_PATH << "\n";
+        std::cout << ConsoleColor::GREEN
+                  << "[+] Binary snapshot updated: " << BINARY_PATH
+                  << ConsoleColor::RESET << '\n';
       }
 
       continue;
     }
 
-    std::cout << "Unknown option. Please choose 0-5.\n";
+    std::cout << ConsoleColor::BRED << "Unknown option."
+              << ConsoleColor::RESET << " Please choose 0-5.\n";
   }
 
   return 0;

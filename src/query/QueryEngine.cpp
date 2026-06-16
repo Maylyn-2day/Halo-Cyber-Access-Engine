@@ -9,6 +9,7 @@
 #include "../core/StringPool.h"
 #include "../indexing/SearchEngine.h"
 #include "../storage/LogStore.h"
+#include "../ConsoleColor.h"
 
 QueryEngine::TopResource::TopResource() : resourceId(0), count(0) {}
 
@@ -62,10 +63,20 @@ void QueryEngine::printUserJourney(uint32_t userId, int64_t startTime,
     return;
   }
 
-  std::cout << "User Journey: " << pool.getString(userId) << '\n';
-
   uint32_t lo = SortUtils::lowerBound(*timeline, startTime);
   uint32_t hi = SortUtils::upperBound(*timeline, endTime);
+  uint32_t totalResults = hi - lo;
+
+  std::cout << "User Journey: " << pool.getString(userId)
+            << " (" << totalResults << " events found)\n";
+
+  if (totalResults == 0) {
+    std::cout << "  No events in the specified time range.\n";
+    return;
+  }
+
+  const uint32_t PAGE_SIZE = 50;
+  uint32_t printed = 0;
 
   for (uint32_t i = lo; i < hi; ++i) {
     const LogEntry *entry = (*timeline)[i];
@@ -77,12 +88,30 @@ void QueryEngine::printUserJourney(uint32_t userId, int64_t startTime,
     char timeStr[32];
     formatTimestamp(entry->timestamp, timeStr, sizeof(timeStr));
 
-    std::cout << "  - " << timeStr << " | ["
-              << eventTypeToString(entry->eventType) << "] "
-              << pool.getString(entry->deviceId) << " -> "
-              << pool.getString(entry->appId) << " -> "
-              << pool.getString(entry->resourceId) << " ("
-              << locationToString(entry->location) << ")" << '\n';
+    std::printf("  - %s | %-13s  %s -> %s -> %s (%s)\n", timeStr,
+                eventTypeToString(entry->eventType),
+                pool.getString(entry->deviceId).c_str(),
+                pool.getString(entry->appId).c_str(),
+                pool.getString(entry->resourceId).c_str(),
+                locationToString(entry->location));
+
+    ++printed;
+
+    // Pager: dừng lại sau mỗi PAGE_SIZE dòng
+    if (printed % PAGE_SIZE == 0 && i + 1 < hi) {
+      std::cout << ConsoleColor::GRAY
+                << "--- Showing " << printed << " / " << totalResults
+                << ". Press [Enter] to continue, [Q] to quit ---"
+                << ConsoleColor::RESET << '\n';
+      std::string input;
+      std::getline(std::cin, input);
+      if (!input.empty() && (input[0] == 'q' || input[0] == 'Q')) {
+        std::cout << ConsoleColor::GRAY << "  (Stopped at " << printed
+                  << " / " << totalResults << ")" << ConsoleColor::RESET
+                  << '\n';
+        return;
+      }
+    }
   }
 }
 
@@ -99,10 +128,20 @@ void QueryEngine::printResourceJourney(uint32_t resourceId, int64_t startTime,
     return;
   }
 
-  std::cout << "Resource Journey: " << pool.getString(resourceId) << '\n';
-
   uint32_t lo = SortUtils::lowerBound(*timeline, startTime);
   uint32_t hi = SortUtils::upperBound(*timeline, endTime);
+  uint32_t totalResults = hi - lo;
+
+  std::cout << "Resource Journey: " << pool.getString(resourceId)
+            << " (" << totalResults << " events found)\n";
+
+  if (totalResults == 0) {
+    std::cout << "  No events in the specified time range.\n";
+    return;
+  }
+
+  const uint32_t PAGE_SIZE = 50;
+  uint32_t printed = 0;
 
   for (uint32_t i = lo; i < hi; ++i) {
     const LogEntry *entry = (*timeline)[i];
@@ -114,12 +153,30 @@ void QueryEngine::printResourceJourney(uint32_t resourceId, int64_t startTime,
     char timeStr[32];
     formatTimestamp(entry->timestamp, timeStr, sizeof(timeStr));
 
-    std::cout << "  - " << timeStr << " | ["
-              << eventTypeToString(entry->eventType) << "] "
-              << pool.getString(entry->userId) << " -> "
-              << pool.getString(entry->deviceId) << " -> "
-              << pool.getString(entry->appId) << " ("
-              << locationToString(entry->location) << ")" << '\n';
+    std::printf("  - %s | %-13s  %s -> %s -> %s (%s)\n", timeStr,
+                eventTypeToString(entry->eventType),
+                pool.getString(entry->userId).c_str(),
+                pool.getString(entry->deviceId).c_str(),
+                pool.getString(entry->appId).c_str(),
+                locationToString(entry->location));
+
+    ++printed;
+
+    // Pager: dừng lại sau mỗi PAGE_SIZE dòng
+    if (printed % PAGE_SIZE == 0 && i + 1 < hi) {
+      std::cout << ConsoleColor::GRAY
+                << "--- Showing " << printed << " / " << totalResults
+                << ". Press [Enter] to continue, [Q] to quit ---"
+                << ConsoleColor::RESET << '\n';
+      std::string input;
+      std::getline(std::cin, input);
+      if (!input.empty() && (input[0] == 'q' || input[0] == 'Q')) {
+        std::cout << ConsoleColor::GRAY << "  (Stopped at " << printed
+                  << " / " << totalResults << ")" << ConsoleColor::RESET
+                  << '\n';
+        return;
+      }
+    }
   }
 }
 
