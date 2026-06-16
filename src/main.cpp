@@ -215,10 +215,7 @@ int main() {
       std::cout << "Binary load time: " << loadMs << " ms\n";
     } else {
       std::cout << "[!] Binary file corrupted. Falling back to CSV...\n";
-      // Reset store (destructor + reconstruct in-place)
-      store.~LogStore();
-      new (&store) LogStore(16384);
-      store.stringPool.reserve(262147);
+      store.reset();
     }
   }
 
@@ -399,10 +396,7 @@ int main() {
       printDivider();
       std::cout << "Force reloading from CSV: " << filename << "\n";
 
-      // Reset LogStore
-      store.~LogStore();
-      new (&store) LogStore(16384);
-      store.stringPool.reserve(262147);
+      store.reset();
 
       DuplicateHashSet gatekeeper(2000003);
 
@@ -423,8 +417,7 @@ int main() {
       std::cout << "CSV ingestion time: " << loadMs << " ms\n";
 
       // Rebuild indices
-      engine.~SearchEngine();
-      new (&engine) SearchEngine(262147, 262147);
+      engine.reset();
 
       auto idxStart = std::chrono::high_resolution_clock::now();
       engine.buildIndices(store);

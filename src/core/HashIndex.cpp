@@ -95,4 +95,17 @@ void HashIndex::sortAllTimelines() {
 
 uint32_t HashIndex::size() const { return keyCount; }
 
+void HashIndex::reset() {
+  for (uint32_t i = 0; i < bucketCount; ++i) {
+    Node *current = buckets[i];
+    while (current != nullptr) {
+      Node *next = current->next;
+      delete current;
+      current = next;
+    }
+    buckets[i] = nullptr;
+  }
+  keyCount = 0;
+}
+
 uint32_t HashIndex::getBucketCount() const { return bucketCount; }

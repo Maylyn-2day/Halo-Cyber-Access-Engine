@@ -135,8 +135,12 @@ public:
   uint32_t size() const;
 
   /**
-   * @brief Trả về dung lượng (số lượng bucket) cấu hình của Index.
+   * @brief Xóa toàn bộ dữ liệu Index mà không hủy cấu trúc.
+   * Giải phóng tất cả Node, reset buckets về trạng thái rỗng.
+   * An toàn hơn so với destructor + placement new.
    */
+  void reset();
+
   uint32_t getBucketCount() const;
 };
 

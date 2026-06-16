@@ -33,6 +33,11 @@ SearchEngine::searchByUser(uint32_t userId) const {
   return userIndex.get(userId);
 }
 
+void SearchEngine::reset() {
+  userIndex.reset();
+  resourceIndex.reset();
+}
+
 const DynamicArray<const LogEntry *> *
 SearchEngine::searchByResource(uint32_t resourceId) const {
   return resourceIndex.get(resourceId);
