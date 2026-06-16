@@ -6,6 +6,18 @@
 #include <cstdio>
 #include <cstring>
 
+// Platform-specific headers for Memory-Mapped I/O
+#if defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#else
+#include <fcntl.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#endif
 
 namespace {
 const uint32_t READ_BUFFER_SIZE = 256 * 1024;
@@ -284,9 +296,11 @@ bool processLine(const char *line, uint32_t length, bool &firstLine,
 
   LogEntry entry(
       store.stringPool.getOrCreateId(parsed.userId.start, parsed.userId.length),
-      store.stringPool.getOrCreateId(parsed.deviceId.start, parsed.deviceId.length),
+      store.stringPool.getOrCreateId(parsed.deviceId.start,
+                                     parsed.deviceId.length),
       store.stringPool.getOrCreateId(parsed.appId.start, parsed.appId.length),
-      store.stringPool.getOrCreateId(parsed.resourceId.start, parsed.resourceId.length),
+      store.stringPool.getOrCreateId(parsed.resourceId.start,
+                                     parsed.resourceId.length),
       parsed.eventType, parsed.location, parsed.timestamp);
 
   return store.insert(entry) != nullptr;
@@ -295,69 +309,123 @@ bool processLine(const char *line, uint32_t length, bool &firstLine,
 
 bool DataLoader::load(const std::string &filename, LogStore &store,
                       DuplicateHashSet &gatekeeper) {
-  FILE *file = std::fopen(filename.c_str(), "rb");
 
-  if (file == nullptr) {
+  // ================================================================
+  // Phase 1: Memory-Map toàn bộ file CSV vào virtual address space
+  // ================================================================
+  const char *mappedData = nullptr;
+  size_t fileSize = 0;
+
+#if defined(_WIN32)
+  // --- Windows: CreateFileMapping + MapViewOfFile ---
+  HANDLE hFile = CreateFileA(
+      filename.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
+      FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
+
+  if (hFile == INVALID_HANDLE_VALUE) {
     return false;
   }
 
-  char *readBuffer = new char[READ_BUFFER_SIZE];
-  char *lineBuffer = new char[MAX_LINE_SIZE];
+  LARGE_INTEGER liSize;
+  if (!GetFileSizeEx(hFile, &liSize)) {
+    CloseHandle(hFile);
+    return false;
+  }
+  fileSize = static_cast<size_t>(liSize.QuadPart);
 
-  uint32_t lineLength = 0;
+  if (fileSize == 0) {
+    CloseHandle(hFile);
+    return true; // File rỗng — hợp lệ nhưng không có dữ liệu
+  }
+
+  HANDLE hMapping =
+      CreateFileMappingA(hFile, nullptr, PAGE_READONLY, 0, 0, nullptr);
+
+  if (hMapping == nullptr) {
+    CloseHandle(hFile);
+    return false;
+  }
+
+  mappedData = static_cast<const char *>(
+      MapViewOfFile(hMapping, FILE_MAP_READ, 0, 0, 0));
+
+  if (mappedData == nullptr) {
+    CloseHandle(hMapping);
+    CloseHandle(hFile);
+    return false;
+  }
+
+#else
+  // --- Linux/macOS: mmap ---
+  int fd = open(filename.c_str(), O_RDONLY);
+  if (fd == -1) {
+    return false;
+  }
+
+  struct stat st;
+  if (fstat(fd, &st) == -1) {
+    close(fd);
+    return false;
+  }
+  fileSize = static_cast<size_t>(st.st_size);
+
+  if (fileSize == 0) {
+    close(fd);
+    return true;
+  }
+
+  mappedData = static_cast<const char *>(
+      mmap(nullptr, fileSize, PROT_READ, MAP_PRIVATE, fd, 0));
+
+  if (mappedData == MAP_FAILED) {
+    close(fd);
+    return false;
+  }
+
+  // Gợi ý kernel đọc tuần tự (tối ưu prefetch)
+  madvise(const_cast<char *>(mappedData), fileSize, MADV_SEQUENTIAL);
+#endif
+
+  // ================================================================
+  // Phase 2: Quét tuyến tính O(N) trên vùng nhớ đã map
+  // FieldView trỏ thẳng vào mapped memory — True Zero-Copy Parsing
+  // ================================================================
   bool firstLine = true;
   bool success = true;
+  const char *lineStart = mappedData;
 
-  while (success) {
-    size_t bytesRead = std::fread(readBuffer, 1, READ_BUFFER_SIZE, file);
+  for (size_t i = 0; i < fileSize && success; ++i) {
+    if (mappedData[i] == '\n') {
+      uint32_t lineLength = static_cast<uint32_t>(&mappedData[i] - lineStart);
 
-    if (bytesRead == 0) {
-      break;
-    }
+      success =
+          processLine(lineStart, lineLength, firstLine, store, gatekeeper);
 
-    for (size_t i = 0; i < bytesRead; ++i) {
-      char c = readBuffer[i];
-
-      if (c == '\n') {
-        success =
-            processLine(lineBuffer, lineLength, firstLine, store, gatekeeper);
-
-        lineLength = 0;
-
-        if (!success) {
-          break;
-        }
-
-        continue;
-      }
-
-      if (lineLength >= MAX_LINE_SIZE) {
-        lineLength = 0;
-
-        while (i < bytesRead && readBuffer[i] != '\n') {
-          ++i;
-        }
-
-        break;
-      }
-
-      lineBuffer[lineLength] = c;
-      ++lineLength;
-    }
-
-    if (bytesRead < READ_BUFFER_SIZE) {
-      break;
+      lineStart = &mappedData[i + 1];
     }
   }
 
-  if (success && lineLength > 0) {
-    success = processLine(lineBuffer, lineLength, firstLine, store, gatekeeper);
+  // Xử lý dòng cuối nếu file không kết thúc bằng '\n'
+  if (success && lineStart < mappedData + fileSize) {
+    uint32_t lineLength =
+        static_cast<uint32_t>((mappedData + fileSize) - lineStart);
+    if (lineLength > 0) {
+      success =
+          processLine(lineStart, lineLength, firstLine, store, gatekeeper);
+    }
   }
 
-  std::fclose(file);
-
-  delete[] readBuffer;
-  delete[] lineBuffer;
+  // ================================================================
+  // Phase 3: Giải phóng tài nguyên hệ điều hành
+  // ================================================================
+#if defined(_WIN32)
+  UnmapViewOfFile(mappedData);
+  CloseHandle(hMapping);
+  CloseHandle(hFile);
+#else
+  munmap(const_cast<char *>(mappedData), fileSize);
+  close(fd);
+#endif
 
   return success;
 }
