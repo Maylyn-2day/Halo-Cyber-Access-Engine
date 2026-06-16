@@ -11,14 +11,14 @@
  * @brief Hệ thống Ingestion dữ liệu tốc độ siêu cao (High-speed CSV Ingestion).
  *
  * Quyết định kiến trúc: DataLoader được thiết kế theo nguyên lý
- * "Zero-Allocation Parsing". Thay vì sử dụng `std::getline`,
- * `std::stringstream` hay `std::string` vô cùng đắt đỏ và gây tắc nghẽn bộ nhớ
- * do cấp phát động liên tục, lớp này đọc trực tiếp khối byte lớn (Chunk) thông
- * qua `FILE*` và `fread`. Dữ liệu dòng (line) được bóc tách bằng các con trỏ
- * Raw Character (`FieldView`) trỏ thẳng vào vùng đệm (Buffer). Điều này giúp
- * tiết kiệm hàng triệu syscall xin cấp phát RAM, giảm tải tối đa sức ép dọn rác
- * (Garbage/Page Faults) và đẩy băng thông nạp dữ liệu lên ngưỡng vật lý của ổ
- * cứng.
+ * "True Zero-Copy Parsing" sử dụng Memory-Mapped I/O. Thay vì đọc
+ * từng khối byte qua fread rồi copy vào lineBuffer, lớp này map toàn bộ
+ * file CSV thẳng vào virtual address space thông qua CreateFileMapping
+ * (Windows) hoặc mmap (Linux). Các con trỏ Raw Character (FieldView)
+ * trỏ trực tiếp vào vùng nhớ đã map — không tồn tại bất kỳ bản sao
+ * trung gian nào. Điều này loại bỏ hoàn toàn chi phí syscall fread,
+ * quản lý buffer, và copy byte-by-byte, đẩy băng thông nạp dữ liệu
+ * lên ngưỡng vật lý của ổ cứng.
  */
 class DataLoader {
 public:
