@@ -1,7 +1,10 @@
 // src/anomaly/AnomalyDetector.cpp
+#define _CRT_SECURE_NO_WARNINGS
 #include "AnomalyDetector.h"
 #include "../core/StringPool.h"
 #include "../indexing/SearchEngine.h" // Nơi chứa hàm lấy timeline
+#include <cstdio>
+#include <ctime>
 #include <iostream>
 
 // ============================================================================
@@ -283,19 +286,204 @@ void AnomalyDetector::recordAnomaly(AnomalyType type, const LogEntry *e) {
   results.pushBack(rec); // Giả định DynamicArray của bạn đang dùng hàm pushBack
 }
 
-void AnomalyDetector::printReport(const StringPool &pool) const {
-  std::cout << "\n============================================\n";
-  std::cout << "         HALO CYBER ACCESS ENGINE           \n";
-  std::cout << "         ANOMALY DETECTION REPORT           \n";
-  std::cout << "============================================\n";
-  std::cout << "[!] Total Anomalies Detected: " << results.size() << "\n\n";
-
-  // In ra 10 cảnh báo đầu tiên để minh họa
-  uint32_t limit = (results.size() > 10) ? 10 : results.size();
-  for (uint32_t i = 0; i < limit; ++i) {
-    const AnomalyRecord &rec = results[i];
-    std::cout << "- At TS: " << rec.timestamp << " | Type: " << (int)rec.type
-              << " | UserID: " << rec.userId << "\n";
+const char *AnomalyDetector::anomalyTypeToString(AnomalyType type) {
+  switch (type) {
+  case AnomalyType::BRUTE_FORCE:
+    return "BRUTE_FORCE";
+  case AnomalyType::DEVICE_HOPPING:
+    return "DEVICE_HOPPING";
+  case AnomalyType::RESOURCE_SCAN:
+    return "RESOURCE_SCAN";
+  case AnomalyType::OUT_OF_HOURS:
+    return "OUT_OF_HOURS";
+  case AnomalyType::IMPOSSIBLE_TRAVEL:
+    return "IMPOSSIBLE_TRAVEL";
+  case AnomalyType::MULTI_COUNTRY_HOPPING:
+    return "MULTI_COUNTRY_HOPPING";
+  case AnomalyType::LONG_SESSION:
+    return "LONG_SESSION";
+  case AnomalyType::DANGER_CHAIN:
+    return "DANGER_CHAIN";
+  case AnomalyType::RAPID_SESSION:
+    return "RAPID_SESSION";
+  case AnomalyType::BRUTE_FORCE_SUCCESS:
+    return "BRUTE_FORCE_SUCCESS";
+  case AnomalyType::DORMANT_ACCOUNT:
+    return "DORMANT_ACCOUNT";
+  default:
+    return "UNKNOWN";
   }
-  std::cout << "============================================\n";
+}
+
+// ============================================================================
+// Executive Summary (Console Dashboard)
+// ============================================================================
+
+void AnomalyDetector::printReport(const StringPool &pool) const {
+  std::cout << "\n";
+  std::cout << "============================================================\n";
+  std::cout << "       HALO CYBER ACCESS ENGINE - ANOMALY REPORT            \n";
+  std::cout << "============================================================\n";
+
+  if (results.size() == 0) {
+    std::cout << "  [OK] No anomalies detected.\n";
+    std::cout
+        << "============================================================\n";
+    return;
+  }
+
+  // --- 1. Đếm theo loại anomaly ---
+  const uint32_t TYPE_COUNT = 11;
+  uint32_t countByType[TYPE_COUNT] = {};
+  for (uint32_t i = 0; i < results.size(); ++i) {
+    uint8_t idx = static_cast<uint8_t>(results[i].type);
+    if (idx < TYPE_COUNT)
+      countByType[idx]++;
+  }
+
+  std::cout << "\n  SEVERITY BREAKDOWN\n";
+  std::cout << "  ----------------------------------------------------------\n";
+
+  // Critical (Đỏ)
+  uint32_t critical = countByType[9] + countByType[4] + countByType[10];
+  std::cout << "  [CRITICAL] " << critical << " alerts\n";
+  if (countByType[9] > 0)
+    std::cout << "    - Brute-Force Success : " << countByType[9] << "\n";
+  if (countByType[4] > 0)
+    std::cout << "    - Impossible Travel   : " << countByType[4] << "\n";
+  if (countByType[10] > 0)
+    std::cout << "    - Dormant Account     : " << countByType[10] << "\n";
+
+  // High (Cam)
+  uint32_t high = countByType[7] + countByType[5] + countByType[2];
+  std::cout << "  [HIGH]     " << high << " alerts\n";
+  if (countByType[7] > 0)
+    std::cout << "    - Danger Chain        : " << countByType[7] << "\n";
+  if (countByType[5] > 0)
+    std::cout << "    - Multi-Country Hop   : " << countByType[5] << "\n";
+  if (countByType[2] > 0)
+    std::cout << "    - Resource Scan       : " << countByType[2] << "\n";
+
+  // Medium (Vàng)
+  uint32_t medium =
+      countByType[0] + countByType[1] + countByType[8] + countByType[6];
+  std::cout << "  [MEDIUM]   " << medium << " alerts\n";
+  if (countByType[0] > 0)
+    std::cout << "    - Brute Force         : " << countByType[0] << "\n";
+  if (countByType[1] > 0)
+    std::cout << "    - Device Hopping      : " << countByType[1] << "\n";
+  if (countByType[8] > 0)
+    std::cout << "    - Rapid Session       : " << countByType[8] << "\n";
+  if (countByType[6] > 0)
+    std::cout << "    - Long Session        : " << countByType[6] << "\n";
+
+  // Low (Xám)
+  uint32_t low = countByType[3];
+  std::cout << "  [LOW]      " << low << " alerts\n";
+  if (countByType[3] > 0)
+    std::cout << "    - Out-of-Hours        : " << countByType[3] << "\n";
+
+  // --- 2. Top 5 User vi phạm nhiều nhất ---
+  // Dùng mảng đếm trực tiếp (Direct-Address) rồi tìm top 5
+  uint32_t *userCounts = new uint32_t[contextCapacity]();
+  for (uint32_t i = 0; i < results.size(); ++i) {
+    if (results[i].userId < contextCapacity)
+      userCounts[results[i].userId]++;
+  }
+
+  std::cout << "\n  TOP 5 RISKIEST USERS\n";
+  std::cout << "  ----------------------------------------------------------\n";
+
+  for (uint32_t rank = 0; rank < 5; ++rank) {
+    uint32_t maxCount = 0;
+    uint32_t maxId = 0;
+    for (uint32_t u = 0; u < contextCapacity; ++u) {
+      if (userCounts[u] > maxCount) {
+        maxCount = userCounts[u];
+        maxId = u;
+      }
+    }
+    if (maxCount == 0)
+      break;
+    std::cout << "    " << (rank + 1) << ". " << pool.getString(maxId) << " ("
+              << maxCount << " alerts)\n";
+    userCounts[maxId] = 0; // Loại khỏi vòng tiếp
+  }
+
+  delete[] userCounts;
+
+  // --- 3. Tổng kết ---
+  std::cout
+      << "\n  ----------------------------------------------------------\n";
+  std::cout << "  TOTAL: " << results.size() << " anomalies detected.\n";
+  std::cout << "============================================================\n";
+}
+
+// ============================================================================
+// Detailed CSV Export
+// ============================================================================
+
+bool AnomalyDetector::exportToCSV(const char *filepath,
+                                  const StringPool &pool) const {
+  FILE *file = std::fopen(filepath, "w");
+  if (file == nullptr) {
+    return false;
+  }
+
+  // Ghi header CSV
+  std::fprintf(file, "timestamp,user_id,device_id,anomaly_type,severity\n");
+
+  for (uint32_t i = 0; i < results.size(); ++i) {
+    const AnomalyRecord &rec = results[i];
+
+    // Dịch ngược Dictionary ID → chuỗi gốc nhờ StringPool
+    std::string userName = pool.getString(rec.userId);
+    std::string deviceName = pool.getString(rec.deviceId);
+    const char *typeName = anomalyTypeToString(rec.type);
+
+    // Phân loại severity
+    const char *severity = "LOW";
+    switch (rec.type) {
+    case AnomalyType::BRUTE_FORCE_SUCCESS:
+    case AnomalyType::IMPOSSIBLE_TRAVEL:
+    case AnomalyType::DORMANT_ACCOUNT:
+      severity = "CRITICAL";
+      break;
+    case AnomalyType::DANGER_CHAIN:
+    case AnomalyType::MULTI_COUNTRY_HOPPING:
+    case AnomalyType::RESOURCE_SCAN:
+      severity = "HIGH";
+      break;
+    case AnomalyType::BRUTE_FORCE:
+    case AnomalyType::DEVICE_HOPPING:
+    case AnomalyType::RAPID_SESSION:
+    case AnomalyType::LONG_SESSION:
+      severity = "MEDIUM";
+      break;
+    case AnomalyType::OUT_OF_HOURS:
+      severity = "LOW";
+      break;
+    default:
+      break;
+    }
+
+    // Chuyển epoch → human-readable
+    char timeStr[32];
+    time_t rawTime = static_cast<time_t>(rec.timestamp);
+    struct tm *ti = gmtime(&rawTime);
+    if (ti != nullptr) {
+      std::snprintf(timeStr, sizeof(timeStr), "%04d-%02d-%02d %02d:%02d:%02d",
+                    ti->tm_year + 1900, ti->tm_mon + 1, ti->tm_mday,
+                    ti->tm_hour, ti->tm_min, ti->tm_sec);
+    } else {
+      std::snprintf(timeStr, sizeof(timeStr), "%lld",
+                    static_cast<long long>(rec.timestamp));
+    }
+
+    std::fprintf(file, "%s,%s,%s,%s,%s\n", timeStr, userName.c_str(),
+                 deviceName.c_str(), typeName, severity);
+  }
+
+  std::fclose(file);
+  return true;
 }

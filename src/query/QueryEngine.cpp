@@ -1,5 +1,8 @@
+#define _CRT_SECURE_NO_WARNINGS
 #include "QueryEngine.h"
 
+#include <cstdio>
+#include <ctime>
 #include <iostream>
 
 #include "../core/SortUtils.h"
@@ -12,6 +15,22 @@ QueryEngine::TopResource::TopResource() : resourceId(0), count(0) {}
 bool QueryEngine::isWithinRange(int64_t timestamp, int64_t startTime,
                                 int64_t endTime) {
   return timestamp >= startTime && timestamp <= endTime;
+}
+
+void QueryEngine::formatTimestamp(int64_t epoch, char *buffer,
+                                  uint32_t bufferSize) {
+  time_t rawTime = static_cast<time_t>(epoch);
+  struct tm *timeInfo = gmtime(&rawTime);
+
+  if (timeInfo == nullptr) {
+    std::snprintf(buffer, bufferSize, "%lld", static_cast<long long>(epoch));
+    return;
+  }
+
+  std::snprintf(buffer, bufferSize, "%04d-%02d-%02d %02d:%02d:%02d",
+                timeInfo->tm_year + 1900, timeInfo->tm_mon + 1,
+                timeInfo->tm_mday, timeInfo->tm_hour, timeInfo->tm_min,
+                timeInfo->tm_sec);
 }
 
 void QueryEngine::insertIntoTop10(TopResource topResources[10],
@@ -55,7 +74,10 @@ void QueryEngine::printUserJourney(uint32_t userId, int64_t startTime,
       continue;
     }
 
-    std::cout << "  - T: " << entry->timestamp << " | ["
+    char timeStr[32];
+    formatTimestamp(entry->timestamp, timeStr, sizeof(timeStr));
+
+    std::cout << "  - " << timeStr << " | ["
               << eventTypeToString(entry->eventType) << "] "
               << pool.getString(entry->deviceId) << " -> "
               << pool.getString(entry->appId) << " -> "
@@ -89,7 +111,10 @@ void QueryEngine::printResourceJourney(uint32_t resourceId, int64_t startTime,
       continue;
     }
 
-    std::cout << "  - T: " << entry->timestamp << " | ["
+    char timeStr[32];
+    formatTimestamp(entry->timestamp, timeStr, sizeof(timeStr));
+
+    std::cout << "  - " << timeStr << " | ["
               << eventTypeToString(entry->eventType) << "] "
               << pool.getString(entry->userId) << " -> "
               << pool.getString(entry->deviceId) << " -> "
@@ -124,7 +149,8 @@ void QueryEngine::printTop10Resources(int64_t startTime, int64_t endTime,
 
     // Bỏ qua toàn bộ Chunk nếu time-range của nó không giao với query window.
     // Chi phí: 2 phép so sánh int64, tiết kiệm tới 8192 phép kiểm tra entry.
-    if (chunk->getMaxTimestamp() < startTime || chunk->getMinTimestamp() > endTime) {
+    if (chunk->getMaxTimestamp() < startTime ||
+        chunk->getMinTimestamp() > endTime) {
       continue;
     }
 

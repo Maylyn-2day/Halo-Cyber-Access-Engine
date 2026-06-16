@@ -9,7 +9,6 @@
 #include "UserContext.h"
 #include <cstdint>
 
-
 // Khai báo sớm (Forward Declaration) để giảm thời gian biên dịch
 // và tránh circular dependency
 class SearchEngine;
@@ -56,10 +55,11 @@ private:
   void checkBruteForceSuccess(UserContext &ctx, const LogEntry *e);
   void checkDormantAccount(UserContext &ctx, const LogEntry *e);
 
-  // --- Utility Methods ---
-
   // Trích xuất giờ (0-23) từ Timestamp dạng UTC
   static int32_t extractHourUTC(int64_t timestamp);
+
+  // Chuyển đổi AnomalyType enum → chuỗi C (dùng cho cả console và CSV)
+  static const char *anomalyTypeToString(AnomalyType type);
 
   // Ghi nhận một bất thường mới vào mảng results
   void recordAnomaly(AnomalyType type, const LogEntry *e);
@@ -94,6 +94,14 @@ public:
    * @brief In báo cáo chi tiết các bất thường ra màn hình Console.
    */
   void printReport(const StringPool &pool) const;
+
+  /**
+   * @brief Xuất toàn bộ kết quả chi tiết ra file CSV.
+   * @param filepath Đường dẫn file đầu ra (VD: "anomaly_report.csv").
+   * @param pool StringPool để dịch ngược userId/deviceId thành chuỗi.
+   * @return true nếu ghi file thành công, false nếu lỗi I/O.
+   */
+  bool exportToCSV(const char *filepath, const StringPool &pool) const;
 
   /**
    * @brief Trả về mảng kết quả (Dùng cho Unit Test hoặc ghi file CSV).

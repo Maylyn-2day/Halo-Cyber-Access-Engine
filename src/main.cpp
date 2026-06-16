@@ -1,5 +1,8 @@
 // main.cpp
+#define _CRT_SECURE_NO_WARNINGS
 #include <chrono>
+#include <cstdio>
+#include <ctime>
 #include <iostream>
 #include <limits>
 #include <string>
@@ -26,9 +29,65 @@ void clearBadInput() {
   std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
 }
 
-bool readInt64WithDefault(const std::string &prompt, int64_t &value,
-                          int64_t defaultValue) {
-  std::cout << prompt << " [Enter = " << defaultValue << "]: ";
+/**
+ * @brief Phân tích chuỗi ngày tháng (YYYY-MM-DD hoặc YYYY-MM-DD HH:MM:SS)
+ *        thành epoch timestamp (UTC).
+ * @return true nếu parse thành công, false nếu định dạng sai.
+ */
+bool parseDateString(const std::string &input, int64_t &result) {
+  struct tm timeStruct = {};
+  int year = 0, month = 0, day = 0;
+  int hour = 0, minute = 0, second = 0;
+
+  // Thử parse YYYY-MM-DD HH:MM:SS trước
+  int matched = std::sscanf(input.c_str(), "%d-%d-%d %d:%d:%d", &year, &month,
+                            &day, &hour, &minute, &second);
+
+  if (matched < 3) {
+    return false; // Không đủ tối thiểu YYYY-MM-DD
+  }
+
+  // Kiểm tra tính hợp lệ cơ bản
+  if (year < 1970 || year > 2100 || month < 1 || month > 12 || day < 1 ||
+      day > 31 || hour < 0 || hour > 23 || minute < 0 || minute > 59 ||
+      second < 0 || second > 59) {
+    return false;
+  }
+
+  timeStruct.tm_year = year - 1900;
+  timeStruct.tm_mon = month - 1;
+  timeStruct.tm_mday = day;
+  timeStruct.tm_hour = hour;
+  timeStruct.tm_min = minute;
+  timeStruct.tm_sec = second;
+  timeStruct.tm_isdst = 0;
+
+  // mktime xử lý local time, nhưng ta cần UTC.
+  // Dùng _mkgmtime trên MSVC (Windows), timegm trên Linux/Mac.
+#if defined(_WIN32)
+  time_t epoch = _mkgmtime(&timeStruct);
+#else
+  time_t epoch = timegm(&timeStruct);
+#endif
+
+  if (epoch == -1) {
+    return false;
+  }
+
+  result = static_cast<int64_t>(epoch);
+  return true;
+}
+
+/**
+ * @brief Đọc giá trị thời gian từ người dùng.
+ * Chấp nhận 3 định dạng:
+ *   1. Enter (trả về giá trị mặc định)
+ *   2. Số nguyên (epoch timestamp, VD: 1714236478)
+ *   3. Chuỗi ngày tháng (VD: 2024-04-27 hoặc 2024-04-27 10:34:38)
+ */
+bool readTimestamp(const std::string &prompt, int64_t &value,
+                   int64_t defaultValue, const char *defaultDisplay) {
+  std::cout << prompt << " [Enter = " << defaultDisplay << "]: ";
 
   std::string input;
   std::getline(std::cin, input);
@@ -38,19 +97,45 @@ bool readInt64WithDefault(const std::string &prompt, int64_t &value,
     return true;
   }
 
-  try {
-    value = std::stoll(input);
-    return true;
-  } catch (...) {
-    std::cout << "Invalid number. Please try again.\n";
-    return false;
+  // Thử parse như epoch number trước
+  bool isNumber = true;
+  for (size_t i = 0; i < input.size(); ++i) {
+    if (i == 0 && input[i] == '-')
+      continue; // Cho phép số âm
+    if (input[i] < '0' || input[i] > '9') {
+      isNumber = false;
+      break;
+    }
   }
+
+  if (isNumber) {
+    try {
+      value = std::stoll(input);
+      return true;
+    } catch (...) {
+      // Fall through to date parsing
+    }
+  }
+
+  // Thử parse như chuỗi ngày tháng
+  if (parseDateString(input, value)) {
+    return true;
+  }
+
+  std::cout << "  Invalid format. Use: YYYY-MM-DD, YYYY-MM-DD HH:MM:SS, or "
+               "epoch number.\n";
+  return false;
 }
 
 void readTimeRange(int64_t &startTime, int64_t &endTime) {
-  while (!readInt64WithDefault("Start timestamp", startTime, DEFAULT_START)) {
+  std::cout << "\n  [Time Input Formats Supported]\n"
+            << "  1. Epoch timestamp (e.g., 1714236478)\n"
+            << "  2. Date string (e.g., 2024-04-27 or 2024-04-27 10:34:38)\n"
+            << "  3. Empty (press Enter to select ALL data)\n";
+
+  while (!readTimestamp("Start time", startTime, DEFAULT_START, "ALL")) {
   }
-  while (!readInt64WithDefault("End timestamp", endTime, DEFAULT_END)) {
+  while (!readTimestamp("End time", endTime, DEFAULT_END, "ALL")) {
   }
 
   if (startTime > endTime) {
@@ -70,6 +155,7 @@ void printMenu() {
   std::cout << "[1] User Journey\n";
   std::cout << "[2] Resource History\n";
   std::cout << "[3] Top 10 Resources\n";
+  std::cout << "[4] Anomaly Detection\n";
   std::cout << "[0] Exit\n";
   printDivider();
   std::cout << "Choice: ";
@@ -153,11 +239,6 @@ int main() {
                      .count();
 
   std::cout << "Indexing time: " << indexMs << " ms\n";
-
-  // Sau khi engine.buildIndices(store):
-  AnomalyDetector detector(store.stringPool.size());
-  detector.runAll(engine, store.stringPool);
-  detector.printReport(store.stringPool);
 
   while (true) {
     int choice = -1;
@@ -243,6 +324,34 @@ int main() {
       auto queryEnd = std::chrono::high_resolution_clock::now();
 
       printQueryElapsedTime(queryStart, queryEnd);
+      continue;
+    }
+
+    if (choice == 4) {
+      printDivider();
+      std::cout << "Running Anomaly Detection Engine...\n";
+
+      auto queryStart = std::chrono::high_resolution_clock::now();
+
+      AnomalyDetector detector(store.stringPool.size());
+      detector.runAll(engine, store.stringPool);
+
+      auto queryEnd = std::chrono::high_resolution_clock::now();
+      auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                           queryEnd - queryStart)
+                           .count();
+
+      detector.printReport(store.stringPool);
+
+      if (detector.exportToCSV("anomaly_report.csv", store.stringPool)) {
+        std::cout << "\n[+] Detailed anomaly report exported to: "
+                     "anomaly_report.csv\n";
+      } else {
+        std::cout << "\n[!] Failed to export anomaly report.\n";
+      }
+
+      std::cout << "[*] Anomaly scanning time: " << elapsedMs << " ms\n";
+
       continue;
     }
 
