@@ -19,6 +19,7 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="src\anomaly\AnomalyDetector.cpp" />
     <ClCompile Include="src\core\HashIndex.cpp" />
     <ClCompile Include="src\core\StringPool.cpp" />
     <ClCompile Include="src\indexing\SearchEngine.cpp" />
@@ -27,6 +28,12 @@
     <ClCompile Include="src\storage\DataLoader.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="src\anomaly\AnomalyDetector.h" />
+    <ClInclude Include="src\anomaly\AnomalyRecord.h" />
+    <ClInclude Include="src\anomaly\AnomalyRules.h" />
+    <ClInclude Include="src\anomaly\DeviceContext.h" />
+    <ClInclude Include="src\anomaly\RingBuffer.h" />
+    <ClInclude Include="src\anomaly\UserContext.h" />
     <ClInclude Include="src\core\DuplicateHashSet.h" />
     <ClInclude Include="src\core\DynamicArray.h" />
     <ClInclude Include="src\core\HashIndex.h" />
