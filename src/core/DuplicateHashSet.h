@@ -3,171 +3,140 @@
 #define DUPLICATE_HASH_SET_H
 
 #include <cstdint>
+#include <cstring>
 #include <string>
 
 /**
- * @brief Cấu trúc Hash Set chuyên biệt lưu trữ dấu vân tay (fingerprint) 64-bit
- * của dữ liệu CSV thô.
+ * @brief Cấu trúc Hash Set chuyên biệt lưu trữ dấu vân tay (fingerprint)
+ * 64-bit của dữ liệu CSV thô.
  *
- * Quyết định kiến trúc: Cấu trúc này đóng vai trò như một màng lọc dữ liệu
- * (Data Filter/Bloom Filter thay thế) nhằm loại bỏ các dòng log trùng lặp
- * (duplicate) ngay từ khâu đầu vào (Ingestion Phase). Bằng cách băm (hash) trực
- * tiếp chuỗi thô (raw line) ngay khi vừa đọc từ file, hệ thống sẽ bỏ qua ngay
- * các chuỗi đã tồn tại, tiết kiệm triệt để lượng lớn thời gian CPU cho các tác
- * vụ cắt chuỗi (splitting), kiểm tra tính hợp lệ (validation) và tra cứu từ
- * điển (dictionary lookup) vô cùng đắt đỏ.
+ * Quyết định kiến trúc: Sử dụng kỹ thuật Open-Addressing với Robin Hood
+ * Hashing thay vì Separate Chaining. Toàn bộ entry được lưu inline trong
+ * một mảng phẳng (flat array), loại bỏ hoàn toàn chi phí cấp phát heap
+ * cho từng node (10M+ lần `new` → 0 lần). Điều này tăng Cache Locality
+ * đáng kể vì CPU prefetcher chỉ cần quét tuần tự trên 1 vùng nhớ liền mạch
+ * thay vì nhảy lung tung trên heap.
+ *
+ * Robin Hood Hashing: Khi xảy ra collision, entry mới sẽ "cướp" vị trí
+ * của entry có khoảng cách thăm dò (probe distance) ngắn hơn. Điều này
+ * giữ cho probe distance trung bình cực kỳ thấp (thường < 2), đảm bảo
+ * hiệu năng O(1) thực tế ngay cả khi load factor lên tới 70-80%.
  */
 class DuplicateHashSet {
 private:
   /**
-   * @brief Node đơn của danh sách liên kết (Linked-list Node) phục vụ giải
-   * quyết đụng độ (Collision Resolution).
-   *
-   * Quyết định kiến trúc: Lựa chọn kỹ thuật Separate Chaining để xử lý Hash
-   * Collision. Khác với Open Addressing (Linear Probing), Separate Chaining đảm
-   * bảo độ phức tạp thao tác chèn luôn duy trì ổn định ngay cả khi Load Factor
-   * (Hệ số tải) của bảng băm tăng cao trong môi trường bộ nhớ hạn hẹp. Kích
-   * thước cấu trúc được ép chặt ở mức 16 bytes (8 bytes fingerprint + 8 bytes
-   * pointer) nhằm tối ưu hoá bộ nhớ Cache.
+   * @brief Slot inline trong mảng phẳng. Không cần con trỏ `next`.
+   * Kích thước: 16 bytes (8 fingerprint + 4 probeDistance + 4 padding/flags).
    */
-  struct FingerprintNode {
-    unsigned long long
-        fingerprint; ///< Dấu vân tay 64-bit đại diện cho nguyên một dòng CSV.
-    FingerprintNode
-        *next; ///< Con trỏ liên kết đến node tiếp theo trong cùng một bucket.
+  struct Slot {
+    unsigned long long fingerprint; ///< Dấu vân tay 64-bit.
+    uint32_t
+        probeDistance; ///< Khoảng cách từ bucket gốc (Robin Hood metadata).
+    bool occupied;     ///< Cờ đánh dấu slot đang chứa dữ liệu hợp lệ.
+    uint8_t _pad[3];   ///< Padding alignment.
 
-    /**
-     * @brief Khởi tạo Node chứa mã băm.
-     *
-     * @param value Mã băm fingerprint 64-bit đầu vào.
-     */
-    explicit FingerprintNode(unsigned long long value)
-        : fingerprint(value), next(nullptr) {}
+    Slot() : fingerprint(0), probeDistance(0), occupied(false) {
+      _pad[0] = _pad[1] = _pad[2] = 0;
+    }
   };
 
-  FingerprintNode **buckets; ///< Mảng động chứa các con trỏ gốc (Head Pointers)
-                             ///< trỏ tới các danh sách liên kết.
-  uint32_t bucketCount;      ///< Kích thước (số lượng bucket) của bảng băm.
-  uint32_t itemCount; ///< Tổng số lượng fingerprint duy nhất đang được lưu trữ.
+  Slot *slots;        ///< Mảng phẳng chứa toàn bộ entries inline.
+  uint32_t capacity;  ///< Kích thước mảng (số lượng slots).
+  uint32_t itemCount; ///< Số lượng fingerprint duy nhất đang lưu.
 
   /**
-   * @brief Tự động tái phân bổ và băm lại (Rehashing) khi hệ số tải vượt
-   * ngưỡng.
+   * @brief Tự động mở rộng và rehash khi load factor vượt ngưỡng 75%.
    *
-   * @param newBucketCount Kích thước mới của bảng băm.
+   * Robin Hood rehash: Duyệt mảng cũ, chỉ insert các slot occupied vào
+   * mảng mới. Không cần duyệt linked-list → nhanh hơn Separate Chaining rehash.
    */
-  void rehash(uint32_t newBucketCount) {
-    FingerprintNode **newBuckets = new FingerprintNode *[newBucketCount];
-    for (uint32_t i = 0; i < newBucketCount; ++i) {
-      newBuckets[i] = nullptr;
-    }
+  void rehash(uint32_t newCapacity) {
+    Slot *oldSlots = slots;
+    uint32_t oldCapacity = capacity;
 
-    for (uint32_t i = 0; i < bucketCount; ++i) {
-      FingerprintNode *current = buckets[i];
-      while (current != nullptr) {
-        FingerprintNode *next = current->next;
-        uint32_t newIndex =
-            static_cast<uint32_t>(current->fingerprint % newBucketCount);
-        current->next = newBuckets[newIndex];
-        newBuckets[newIndex] = current;
-        current = next;
+    slots = new Slot[newCapacity]();
+    capacity = newCapacity;
+    itemCount = 0;
+
+    for (uint32_t i = 0; i < oldCapacity; ++i) {
+      if (oldSlots[i].occupied) {
+        insertInternal(oldSlots[i].fingerprint);
       }
     }
 
-    delete[] buckets;
-    buckets = newBuckets;
-    bucketCount = newBucketCount;
+    delete[] oldSlots;
+  }
+
+  /**
+   * @brief Insert nội bộ dùng Robin Hood probing.
+   * Được gọi bởi cả insertIfAbsent (public) và rehash (private).
+   */
+  void insertInternal(unsigned long long fingerprint) {
+    uint32_t index = static_cast<uint32_t>(fingerprint % capacity);
+    uint32_t dist = 0;
+
+    while (true) {
+      if (!slots[index].occupied) {
+        // Slot trống → chèn vào
+        slots[index].fingerprint = fingerprint;
+        slots[index].probeDistance = dist;
+        slots[index].occupied = true;
+        ++itemCount;
+        return;
+      }
+
+      // Robin Hood: nếu entry hiện tại "giàu hơn" (probe distance ngắn hơn),
+      // ta cướp vị trí của nó và đẩy nó đi tìm chỗ mới.
+      if (slots[index].probeDistance < dist) {
+        // Swap: entry hiện tại bị đẩy ra
+        unsigned long long tmpFp = slots[index].fingerprint;
+        uint32_t tmpDist = slots[index].probeDistance;
+
+        slots[index].fingerprint = fingerprint;
+        slots[index].probeDistance = dist;
+
+        fingerprint = tmpFp;
+        dist = tmpDist;
+      }
+
+      // Linear probing: tiến sang slot kế tiếp
+      index = (index + 1) % capacity;
+      ++dist;
+    }
   }
 
 public:
   /**
-   * @brief Khởi tạo không gian bảng băm (Hash Table) với lượng bucket ấn định
-   * trước.
+   * @brief Khởi tạo bảng băm Open-Addressing với capacity cho trước.
    *
-   * Quyết định kiến trúc: Việc cố định kích thước `bucketSize` thay vì tự động
-   * mở rộng (auto-resize/rehashing) nhằm triệt tiêu hoàn toàn rủi ro độ trễ đột
-   * biến (Latency Spike) O(N) trong luồng đẩy dữ liệu real-time. Việc chia sẵn
-   * vùng nhớ con trỏ giúp thao tác khởi tạo đạt tốc độ cực nhanh, tuy nhiên yêu
-   * cầu người lập trình phải dự phóng trước (estimate) lượng log lớn nhất để
-   * hạn chế độ dài của các chuỗi Chaining.
-   *
-   * @param bucketSize Số lượng slot bucket sẽ được cấp phát tĩnh cho bảng băm.
+   * @param bucketSize Kích thước mảng slots (Khuyến nghị số nguyên tố).
    */
   explicit DuplicateHashSet(uint32_t bucketSize)
-      : buckets(nullptr), bucketCount(bucketSize), itemCount(0) {
-    if (bucketCount == 0) {
-      bucketCount = 1;
+      : slots(nullptr), capacity(bucketSize), itemCount(0) {
+    if (capacity == 0) {
+      capacity = 1;
     }
 
-    buckets = new FingerprintNode *[bucketCount];
-
-    for (uint32_t i = 0; i < bucketCount; ++i) {
-      buckets[i] = nullptr;
-    }
+    slots = new Slot[capacity]();
   }
 
   /**
-   * @brief Quét (walk) toàn bộ cấu trúc mảng và giải phóng bộ nhớ động.
-   *
-   * Quyết định kiến trúc: Độ phức tạp thời gian thực thi là O(N + M) với N là
-   * số bucket, M là tổng số node. Vòng lặp dọn dẹp bộ nhớ thủ công này là bắt
-   * buộc (Zero Memory Leak) để rà soát và tiêu huỷ toàn bộ các FingerprintNode
-   * đang rải rác trên vùng heap, trước khi phá huỷ nốt khối mảng con trỏ
-   * `buckets`.
+   * @brief Giải phóng mảng phẳng. Chỉ 1 lệnh delete[] duy nhất.
+   * So với Separate Chaining: tiết kiệm O(N) lần delete node.
    */
   ~DuplicateHashSet() {
-    for (uint32_t i = 0; i < bucketCount; ++i) {
-      FingerprintNode *current = buckets[i];
-
-      while (current != nullptr) {
-        FingerprintNode *next = current->next;
-        delete current;
-        current = next;
-      }
-
-      buckets[i] = nullptr;
-    }
-
-    delete[] buckets;
-    buckets = nullptr;
-    bucketCount = 0;
+    delete[] slots;
+    slots = nullptr;
+    capacity = 0;
     itemCount = 0;
   }
 
-  /**
-   * @brief Cấm hoàn toàn hành vi sao chép tự động (Copy) để bảo vệ quyền sở hữu
-   * bộ nhớ.
-   *
-   * Quyết định kiến trúc: Cấu trúc này chứa các con trỏ Raw quản lý Linked-list
-   * và vùng Mảng động phân mảnh. Nếu để C++ thực hiện Shallow Copy mặc định, hệ
-   * thống sẽ rơi vào lỗi Double-Free Crash không thể phục hồi khi 2 object độc
-   * lập cùng cố gắng giải phóng chung vùng nhớ ở hàm huỷ (Destructor).
-   *
-   * @param other Đối tượng nguyên bản.
-   */
+  // Vô hiệu hóa Copy để bảo vệ quyền sở hữu bộ nhớ.
   DuplicateHashSet(const DuplicateHashSet &other) = delete;
-
-  /**
-   * @brief Vô hiệu hoá hoàn toàn toán tử gán (Assignment) vì lý do an toàn bộ
-   * nhớ tương tự cấu trúc Copy.
-   *
-   * @param other Đối tượng nguyên bản.
-   * @return Xóa thao tác trả về (Deleted).
-   */
   DuplicateHashSet &operator=(const DuplicateHashSet &other) = delete;
 
   /**
-   * @brief Thuật toán băm chuỗi djb2 tiêu chuẩn do Dan Bernstein thiết kế.
-   *
-   * Quyết định thuật toán: Thuật toán djb2 cung cấp tốc độ băm cực kỳ mãnh liệt
-   * (O(L) với L là độ dài chuỗi) kết hợp với tỷ lệ đụng độ (collision rate)
-   * thấp đáng kinh ngạc, rất tối ưu cho cấu trúc mã ASCII. Các phép toán
-   * bitwise (dịch trái 5 bit rồi cộng dồn) rẻ hơn rất nhiều so với lệnh nhân
-   * vật lý, giúp tận dụng tối đa năng lực Arithmetic Logic Unit (ALU) của CPU.
-   * Đầu ra 64-bit (unsigned long long) đủ sức làm định danh an toàn.
-   *
-   * @param line Chuỗi CSV thô (Row) cần được băm thành số.
-   * @return unsigned long long Vân tay 64-bit đại diện duy nhất cho chuỗi.
+   * @brief Thuật toán băm chuỗi djb2 chuẩn.
    */
   static unsigned long long djb2(const std::string &line) {
     unsigned long long hash = 5381ULL;
@@ -180,59 +149,66 @@ public:
   }
 
   /**
-   * @brief Thẩm định và chèn nguyên bản mã vân tay (fingerprint) vào bảng băm.
+   * @brief Thẩm định và chèn fingerprint bằng Robin Hood probing.
    *
-   * Thuật toán: Độ phức tạp trung bình (Average Time Complexity) là O(1) nếu Hệ
-   * số tải (Load Factor) được cấu hình hợp lý. Trường hợp tồi tệ nhất (Worst
-   * Case) là O(K) với K là độ dài chuỗi liên kết tập trung tại một node đụng
-   * độ. Bằng cách sáp nhập vòng lặp tra cứu (search) và chèn (insert) vào chung
-   * một Single Pass (Một lần quét), hệ thống tiết kiệm được 1/2 chi phí tính
-   * toán Hash Offset so với việc gọi hàm tra cứu (contains) trước rồi mới chèn.
+   * Thuật toán: O(1) trung bình. Probe distance trung bình với Robin Hood
+   * thường < 2 ngay cả ở load factor 70%. Nếu load factor vượt 75%,
+   * tự động rehash để duy trì hiệu năng.
    *
    * @param fingerprint Vân tay 64-bit cần thẩm định.
-   * @return true Cờ phản hồi nếu hệ thống ghi nhận sự vắng mặt và chèn thành
-   * công vân tay mới.
-   * @return false Cờ phản hồi nếu vân tay đã có mặt từ trước (Từ chối Ingestion
-   * dòng Log này).
+   * @return true nếu fingerprint mới (đã chèn thành công).
+   * @return false nếu fingerprint đã tồn tại (từ chối dòng trùng lặp).
    */
   bool insertIfAbsent(unsigned long long fingerprint) {
-    if (itemCount >= bucketCount * 2) {
-      rehash(bucketCount * 2 + 1);
+    // Rehash nếu load factor > 75%
+    if (itemCount * 4 >= capacity * 3) {
+      rehash(capacity * 2 + 1);
     }
 
-    uint32_t index = static_cast<uint32_t>(fingerprint % bucketCount);
-    FingerprintNode *current = buckets[index];
+    uint32_t index = static_cast<uint32_t>(fingerprint % capacity);
+    uint32_t dist = 0;
 
-    while (current != nullptr) {
-      if (current->fingerprint == fingerprint) {
+    while (true) {
+      if (!slots[index].occupied) {
+        // Slot trống → fingerprint chưa tồn tại → chèn
+        slots[index].fingerprint = fingerprint;
+        slots[index].probeDistance = dist;
+        slots[index].occupied = true;
+        ++itemCount;
+        return true;
+      }
+
+      // Fingerprint đã tồn tại → từ chối
+      if (slots[index].fingerprint == fingerprint) {
         return false;
       }
 
-      current = current->next;
+      // Robin Hood: nếu probe distance hiện tại ngắn hơn của ta,
+      // ta chắc chắn fingerprint không nằm sau vị trí này nữa
+      // (tính chất Robin Hood invariant).
+      // Tuy nhiên, để an toàn với rehash, ta vẫn tiếp tục probing
+      // cho đến khi gặp slot trống hoặc match.
+
+      // Nếu entry hiện tại "giàu hơn" → cướp vị trí (Robin Hood swap)
+      if (slots[index].probeDistance < dist) {
+        // Swap và tiếp tục tìm chỗ cho entry bị đẩy ra
+        unsigned long long tmpFp = slots[index].fingerprint;
+        uint32_t tmpDist = slots[index].probeDistance;
+
+        slots[index].fingerprint = fingerprint;
+        slots[index].probeDistance = dist;
+
+        fingerprint = tmpFp;
+        dist = tmpDist;
+      }
+
+      index = (index + 1) % capacity;
+      ++dist;
     }
-
-    FingerprintNode *created = new FingerprintNode(fingerprint);
-    created->next = buckets[index];
-    buckets[index] = created;
-    ++itemCount;
-
-    return true;
   }
 
-  /**
-   * @brief Truy vấn số lượng vân tay (dữ liệu log không trùng lặp) hiện đang
-   * được lưu trữ bảo lưu trong bảng.
-   *
-   * @return uint32_t Trả về tốc độ O(1) trạng thái bộ đếm `itemCount`.
-   */
   uint32_t size() const { return itemCount; }
-
-  /**
-   * @brief Truy vấn kích thước hạ tầng mảng Bucket đã cấp phát phân tán.
-   *
-   * @return uint32_t Lượng bucket cấu hình cứng trên RAM (O(1)).
-   */
-  uint32_t getBucketCount() const { return bucketCount; }
+  uint32_t getBucketCount() const { return capacity; }
 };
 
 #endif
