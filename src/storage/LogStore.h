@@ -160,6 +160,17 @@ public:
    * @brief Truy cập Read-only một Chunk thông qua chỉ mục.
    */
   const LogChunk *getChunk(uint32_t index) const { return chunks[index]; }
+
+  /**
+   * @brief Cho phép BinaryIO inject chunk đã populate sẵn khi load binary.
+   * @param chunk Con trỏ tới LogChunk đã được fread data.
+   * @param entryCount Số entries thực tế trong chunk.
+   */
+  void addLoadedChunk(LogChunk *chunk, uint32_t entryCount) {
+    chunks.pushBack(chunk);
+    currentChunk = chunk;
+    totalEntries += entryCount;
+  }
 };
 
 #endif

@@ -11,11 +11,13 @@
 #include "core/DuplicateHashSet.h"
 #include "indexing/SearchEngine.h"
 #include "query/QueryEngine.h"
+#include "storage/BinaryIO.h"
 #include "storage/DataLoader.h"
 #include "storage/LogStore.h"
 
 namespace {
 const std::string DEFAULT_CSV_PATH = "data.csv";
+const std::string BINARY_PATH = "halo_db.bin";
 
 const int64_t DEFAULT_START = 0;
 const int64_t DEFAULT_END = 2000000000;
@@ -156,6 +158,7 @@ void printMenu() {
   std::cout << "[2] Resource History\n";
   std::cout << "[3] Top 10 Resources\n";
   std::cout << "[4] Anomaly Detection\n";
+  std::cout << "[5] Force Reload from CSV\n";
   std::cout << "[0] Exit\n";
   printDivider();
   std::cout << "Choice: ";
@@ -190,25 +193,62 @@ int main() {
   LogStore store(16384);
   store.stringPool.reserve(262147);
 
-  DuplicateHashSet gatekeeper(2000003);
+  bool loaded = false;
+  bool fromBinary = false;
 
-  std::cout << "\nLoading data from: " << filename << '\n';
+  // --- Chiến lược Smart Boot: Binary trước, CSV fallback ---
+  if (BinaryIO::isValid(BINARY_PATH.c_str(), filename)) {
+    std::cout << "\n[*] Found valid binary snapshot: " << BINARY_PATH << "\n";
+    std::cout << "Loading from binary...\n";
 
-  auto loadStart = std::chrono::high_resolution_clock::now();
-  bool loaded = DataLoader::load(filename, store, gatekeeper);
-  auto loadEnd = std::chrono::high_resolution_clock::now();
+    auto loadStart = std::chrono::high_resolution_clock::now();
+    loaded = BinaryIO::load(BINARY_PATH.c_str(), store);
+    auto loadEnd = std::chrono::high_resolution_clock::now();
 
-  auto loadMs =
-      std::chrono::duration_cast<std::chrono::milliseconds>(loadEnd - loadStart)
-          .count();
+    auto loadMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                      loadEnd - loadStart)
+                      .count();
 
-  if (!loaded) {
-    std::cout << "Failed to load CSV file.\n";
-    return 1;
+    if (loaded) {
+      fromBinary = true;
+      std::cout << "Rows loaded: " << store.size() << '\n';
+      std::cout << "Binary load time: " << loadMs << " ms\n";
+    } else {
+      std::cout << "[!] Binary file corrupted. Falling back to CSV...\n";
+      // Reset store (destructor + reconstruct in-place)
+      store.~LogStore();
+      new (&store) LogStore(16384);
+      store.stringPool.reserve(262147);
+    }
   }
 
-  std::cout << "Rows loaded: " << store.size() << '\n';
-  std::cout << "Ingestion time: " << loadMs << " ms\n";
+  if (!loaded) {
+    // Fallback: Parse CSV
+    DuplicateHashSet gatekeeper(2000003);
+
+    std::cout << "\nLoading data from CSV: " << filename << '\n';
+
+    auto loadStart = std::chrono::high_resolution_clock::now();
+    loaded = DataLoader::load(filename, store, gatekeeper);
+    auto loadEnd = std::chrono::high_resolution_clock::now();
+
+    auto loadMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                      loadEnd - loadStart)
+                      .count();
+
+    if (!loaded) {
+      std::cout << "Failed to load CSV file.\n";
+      return 1;
+    }
+
+    std::cout << "Rows loaded: " << store.size() << '\n';
+    std::cout << "CSV ingestion time: " << loadMs << " ms\n";
+
+    // Dump binary snapshot cho lần chạy sau
+    if (BinaryIO::dump(BINARY_PATH.c_str(), store, filename)) {
+      std::cout << "[+] Binary snapshot saved: " << BINARY_PATH << "\n";
+    }
+  }
 
   std::string defaultUser = "";
   std::string defaultRes = "";
@@ -355,7 +395,68 @@ int main() {
       continue;
     }
 
-    std::cout << "Unknown option. Please choose 1, 2, 3, or 0.\n";
+    if (choice == 5) {
+      printDivider();
+      std::cout << "Force reloading from CSV: " << filename << "\n";
+
+      // Reset LogStore
+      store.~LogStore();
+      new (&store) LogStore(16384);
+      store.stringPool.reserve(262147);
+
+      DuplicateHashSet gatekeeper(2000003);
+
+      auto loadStart = std::chrono::high_resolution_clock::now();
+      bool reloaded = DataLoader::load(filename, store, gatekeeper);
+      auto loadEnd = std::chrono::high_resolution_clock::now();
+
+      auto loadMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                        loadEnd - loadStart)
+                        .count();
+
+      if (!reloaded) {
+        std::cout << "[!] Failed to reload CSV.\n";
+        continue;
+      }
+
+      std::cout << "Rows loaded: " << store.size() << '\n';
+      std::cout << "CSV ingestion time: " << loadMs << " ms\n";
+
+      // Rebuild indices
+      engine.~SearchEngine();
+      new (&engine) SearchEngine(262147, 262147);
+
+      auto idxStart = std::chrono::high_resolution_clock::now();
+      engine.buildIndices(store);
+      auto idxEnd = std::chrono::high_resolution_clock::now();
+
+      auto idxMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                       idxEnd - idxStart)
+                       .count();
+
+      std::cout << "Indexing time: " << idxMs << " ms\n";
+
+      // Update defaults
+      if (store.size() > 0 && store.chunkCount() > 0) {
+        const LogChunk *fc = store.getChunk(0);
+        if (fc != nullptr && fc->size() > 0) {
+          const LogEntry *fe = fc->raw();
+          if (fe != nullptr) {
+            defaultUser = store.stringPool.getString(fe[0].userId);
+            defaultRes = store.stringPool.getString(fe[0].resourceId);
+          }
+        }
+      }
+
+      // Save new binary snapshot
+      if (BinaryIO::dump(BINARY_PATH.c_str(), store, filename)) {
+        std::cout << "[+] Binary snapshot updated: " << BINARY_PATH << "\n";
+      }
+
+      continue;
+    }
+
+    std::cout << "Unknown option. Please choose 0-5.\n";
   }
 
   return 0;

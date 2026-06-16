@@ -25,6 +25,7 @@
     <ClCompile Include="src\indexing\SearchEngine.cpp" />
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\query\QueryEngine.cpp" />
+    <ClCompile Include="src\storage\BinaryIO.cpp" />
     <ClCompile Include="src\storage\DataLoader.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -43,6 +44,7 @@
     <ClInclude Include="src\core\StringPool.h" />
     <ClInclude Include="src\indexing\SearchEngine.h" />
     <ClInclude Include="src\query\QueryEngine.h" />
+    <ClInclude Include="src\storage\BinaryIO.h" />
     <ClInclude Include="src\storage\DataLoader.h" />
     <ClInclude Include="src\storage\LogStore.h" />
   </ItemGroup>
