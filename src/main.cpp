@@ -7,6 +7,7 @@
 #include <limits>
 #include <string>
 
+#include "ConsoleColor.h"
 #include "anomaly/AnomalyDetector.h"
 #include "core/DuplicateHashSet.h"
 #include "indexing/SearchEngine.h"
@@ -14,12 +15,39 @@
 #include "storage/BinaryIO.h"
 #include "storage/DataLoader.h"
 #include "storage/LogStore.h"
-#include "ConsoleColor.h"
+
 
 namespace {
 const std::string DEFAULT_CSV_PATH = "data.csv";
-const std::string BINARY_PATH = "data/halo_db.bin";
 
+/**
+ * @brief Tự sinh đường dẫn file .bin từ đường dẫn CSV.
+ * Ví dụ: "data.csv"          → "data_cache.bin"
+ *          "C:/foo/log.csv"    → "C:/foo/log_cache.bin"
+ * Đảm bảo file .bin luôn nằm cạnh CSV,
+ * không phụ thuộc vào thư mục làm việc của exe.
+ */
+std::string makeBinaryPath(const std::string &csvPath) {
+  // Tìm vị trí dấu chấm cuối cùng
+  size_t dotPos = csvPath.rfind('.');
+  if (dotPos == std::string::npos) {
+    return csvPath + "_cache.bin";
+  }
+  return csvPath.substr(0, dotPos) + "_cache.bin";
+}
+
+/**
+ * @brief Sinh đường dẫn file anomaly report cạnh CSV.
+ * Ví dụ: "data.csv"       → "data_anomaly_report.csv"
+ *          "C:/foo/log.csv" → "C:/foo/log_anomaly_report.csv"
+ */
+std::string makeReportPath(const std::string &csvPath) {
+  size_t dotPos = csvPath.rfind('.');
+  if (dotPos == std::string::npos) {
+    return csvPath + "_anomaly_report.csv";
+  }
+  return csvPath.substr(0, dotPos) + "_anomaly_report.csv";
+}
 const int64_t DEFAULT_START = 0;
 const int64_t DEFAULT_END = 2000000000;
 
@@ -168,8 +196,7 @@ void printMenu() {
             << " Anomaly Detection\n";
   std::cout << ConsoleColor::YELLOW << "[5]" << ConsoleColor::RESET
             << " Force Reload from CSV\n";
-  std::cout << ConsoleColor::GRAY << "[0]" << ConsoleColor::RESET
-            << " Exit\n";
+  std::cout << ConsoleColor::GRAY << "[0]" << ConsoleColor::RESET << " Exit\n";
   printDivider();
   std::cout << "Choice: ";
 }
@@ -209,10 +236,14 @@ int main() {
   bool loaded = false;
   bool fromBinary = false;
 
+  // Binary path được sinh động cạnh file CSV
+  const std::string BINARY_PATH = makeBinaryPath(filename);
+
   // --- Chiến lược Smart Boot: Binary trước, CSV fallback ---
   if (BinaryIO::isValid(BINARY_PATH.c_str(), filename)) {
-    std::cout << ConsoleColor::YELLOW << "[*] Found valid binary snapshot: "
-              << BINARY_PATH << ConsoleColor::RESET << '\n';
+    std::cout << ConsoleColor::YELLOW
+              << "[*] Found valid binary snapshot: " << BINARY_PATH
+              << ConsoleColor::RESET << '\n';
     std::cout << "Loading from binary...\n";
 
     auto loadStart = std::chrono::high_resolution_clock::now();
@@ -257,9 +288,8 @@ int main() {
       return 1;
     }
 
-    std::cout << ConsoleColor::BYELLOW << "[FIRST RUN]"
-              << ConsoleColor::RESET << " Rows loaded: " << store.size()
-              << '\n';
+    std::cout << ConsoleColor::BYELLOW << "[FIRST RUN]" << ConsoleColor::RESET
+              << " Rows loaded: " << store.size() << '\n';
     std::cout << ConsoleColor::YELLOW << "CSV ingestion time: " << loadMs
               << " ms" << ConsoleColor::RESET << '\n';
 
@@ -405,18 +435,21 @@ int main() {
 
       detector.printReport(store.stringPool);
 
-      if (detector.exportToCSV("data/anomaly_report.csv", store.stringPool)) {
+      const std::string reportPath = makeReportPath(filename);
+      if (detector.exportToCSV(reportPath.c_str(), store.stringPool)) {
         std::cout << ConsoleColor::GREEN
                   << "\n[+] Detailed anomaly report exported to: "
-                     "data/anomaly_report.csv"
+                  << reportPath
                   << ConsoleColor::RESET << '\n';
       } else {
-        std::cout << ConsoleColor::BRED << "\n[!] Failed to export anomaly report."
+        std::cout << ConsoleColor::BRED
+                  << "\n[!] Failed to export anomaly report."
                   << ConsoleColor::RESET << '\n';
       }
 
-      std::cout << ConsoleColor::YELLOW << "[*] Anomaly scanning time: "
-                << elapsedMs << " ms" << ConsoleColor::RESET << '\n';
+      std::cout << ConsoleColor::YELLOW
+                << "[*] Anomaly scanning time: " << elapsedMs << " ms"
+                << ConsoleColor::RESET << '\n';
 
       continue;
     }
@@ -454,9 +487,8 @@ int main() {
         continue;
       }
 
-      std::cout << ConsoleColor::BGREEN << "[OK]"
-                << ConsoleColor::RESET << " Rows loaded: " << store.size()
-                << '\n';
+      std::cout << ConsoleColor::BGREEN << "[OK]" << ConsoleColor::RESET
+                << " Rows loaded: " << store.size() << '\n';
       std::cout << ConsoleColor::YELLOW << "CSV ingestion time: " << loadMs
                 << " ms" << ConsoleColor::RESET << '\n';
 
@@ -495,8 +527,8 @@ int main() {
       continue;
     }
 
-    std::cout << ConsoleColor::BRED << "Unknown option."
-              << ConsoleColor::RESET << " Please choose 0-5.\n";
+    std::cout << ConsoleColor::BRED << "Unknown option." << ConsoleColor::RESET
+              << " Please choose 0-5.\n";
   }
 
   return 0;

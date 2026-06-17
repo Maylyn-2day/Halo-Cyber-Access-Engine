@@ -55,6 +55,11 @@ private:
   void checkBruteForceSuccess(UserContext &ctx, const LogEntry *e);
   void checkDormantAccount(UserContext &ctx, const LogEntry *e);
 
+  // [Nhóm 5]: Custom (Đề xuất mới)
+  void checkDataExfiltration(UserContext &ctx, const LogEntry *e);
+  void checkCompromisedDevice(DeviceContext &dctx, const LogEntry *e);
+  void checkLateralMovement(UserContext &ctx, const LogEntry *e);
+
   // Trích xuất giờ (0-23) từ Timestamp dạng UTC
   static int32_t extractHourUTC(int64_t timestamp);
 

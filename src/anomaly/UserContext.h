@@ -55,6 +55,16 @@ struct UserContext {
   uint32_t burstEventCount;
   int64_t dormantWakeupTimestamp; // Ghi nhận khoảnh khắc tài khoản "sống lại"
 
+  // --- 5. Nhóm Custom (Đề xuất mới) ---
+  // Luật 12 (Data Exfiltration): Download nhiều resource khác nhau ngoài giờ
+  TimestampedRingBuffer<AnomalyRules::EXFILTRATION_THRESHOLD>
+      exfiltrationWindow;
+  bool exfiltrationReported; // Cờ chặn báo trùng
+
+  // Luật 14 (Lateral Movement): Nhảy giữa nhiều App khác nhau
+  TimestampedRingBuffer<AnomalyRules::LATERAL_MOVEMENT_THRESHOLD> appWindow;
+  bool lateralMovementReported;
+
   // --- Constructor Khởi tạo (Zero-initialization) ---
   UserContext()
       : userId(0), lastActivityTimestamp(0), firstActivityTimestamp(0),
@@ -62,7 +72,8 @@ struct UserContext {
         outOfHoursReported(false), hasActiveSession(false),
         sessionStartTimestamp(0), dangerousActionCount(0),
         consecutiveFailedCount(0), wasLongDormant(false), burstEventCount(0),
-        dormantWakeupTimestamp(0) {}
+        dormantWakeupTimestamp(0), exfiltrationReported(false),
+        lateralMovementReported(false) {}
 };
 
 #endif

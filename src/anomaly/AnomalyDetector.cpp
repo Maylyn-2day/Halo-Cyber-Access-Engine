@@ -89,6 +89,11 @@ void AnomalyDetector::processEvent(const LogEntry *entry) {
   checkBruteForceSuccess(uCtx, entry);
   checkDormantAccount(uCtx, entry);
 
+  // --- 5. NHÓM CUSTOM (Đề xuất mới) ---
+  checkDataExfiltration(uCtx, entry);
+  checkCompromisedDevice(dCtx, entry);
+  checkLateralMovement(uCtx, entry);
+
   // --- CẬP NHẬT BASELINE STATE SAU CÙNG ---
   uCtx.lastActivityTimestamp = entry->timestamp;
   uCtx.lastLocation = entry->location;
@@ -267,6 +272,90 @@ void AnomalyDetector::checkDormantAccount(UserContext &ctx, const LogEntry *e) {
 }
 
 // ============================================================================
+// Luật 12: Data Exfiltration — Download nhiều resource khác nhau ngoài giờ
+// Kịch bản: Nhân viên nghỉ việc rút ruột dữ liệu lúc đêm khuya.
+// Điều kiện: eventType == DOWNLOAD + ngoài giờ (0h-6h) + >= 5 resource
+//           khác nhau trong 10 phút
+// ============================================================================
+
+void AnomalyDetector::checkDataExfiltration(UserContext &ctx,
+                                            const LogEntry *e) {
+  // Chỉ quan tâm sự kiện Download
+  if (e->eventType != EVENT_DOWNLOAD) return;
+
+  // Chỉ quan tâm ngoài giờ hành chính (0h–6h sáng — khung giờ nguy hiểm nhất)
+  int32_t hour = extractHourUTC(e->timestamp);
+  if (hour >= AnomalyRules::WORK_HOUR_START) return;
+
+  // Push resourceId vào cửa sổ trượt
+  ctx.exfiltrationWindow.push(e->timestamp, e->resourceId);
+
+  // Kiểm tra: đã đủ ngưỡng unique resources chưa?
+  if (!ctx.exfiltrationReported &&
+      ctx.exfiltrationWindow.isFull() &&
+      ctx.exfiltrationWindow.isThresholdBreached(
+          e->timestamp, AnomalyRules::EXFILTRATION_WINDOW_SEC)) {
+    uint32_t uniqueRes = ctx.exfiltrationWindow.countUnique();
+    if (uniqueRes >= AnomalyRules::EXFILTRATION_THRESHOLD) {
+      recordAnomaly(AnomalyType::DATA_EXFILTRATION, e);
+      ctx.exfiltrationReported = true;
+    }
+  }
+}
+
+// ============================================================================
+// Luật 13: Compromised Device — Nhiều user login trên cùng 1 device
+// Kịch bản: Thiết bị bị chiếm quyền được dùng làm jump server.
+// Điều kiện: >= 3 userId khác nhau LOGIN trên cùng deviceId trong 5 phút
+// ============================================================================
+
+void AnomalyDetector::checkCompromisedDevice(DeviceContext &dctx,
+                                             const LogEntry *e) {
+  // Chỉ quan tâm sự kiện Login
+  if (e->eventType != EVENT_LOGIN) return;
+
+  // Push userId vào cửa sổ trượt của device
+  dctx.userWindow.push(e->timestamp, e->userId);
+
+  // Kiểm tra: đủ ngưỡng unique users chưa?
+  if (!dctx.compromisedReported &&
+      dctx.userWindow.isFull() &&
+      dctx.userWindow.isThresholdBreached(
+          e->timestamp, AnomalyRules::COMPROMISED_DEVICE_WINDOW_SEC)) {
+    uint32_t uniqueUsers = dctx.userWindow.countUnique();
+    if (uniqueUsers >= AnomalyRules::COMPROMISED_DEVICE_THRESHOLD) {
+      recordAnomaly(AnomalyType::COMPROMISED_DEVICE, e);
+      dctx.compromisedReported = true;
+    }
+  }
+}
+
+// ============================================================================
+// Luật 14: Lateral Movement — Nhảy giữa nhiều App khác nhau
+// Kịch bản: Hacker sau khi chiếm tài khoản, "đi dạo" qua nhiều ứng dụng
+//           để dò thám quyền truy cập.
+// Điều kiện: >= 4 appId khác nhau trong 2 phút
+// ============================================================================
+
+void AnomalyDetector::checkLateralMovement(UserContext &ctx,
+                                           const LogEntry *e) {
+  // Push appId vào cửa sổ trượt
+  ctx.appWindow.push(e->timestamp, e->appId);
+
+  // Kiểm tra ngưỡng
+  if (!ctx.lateralMovementReported &&
+      ctx.appWindow.isFull() &&
+      ctx.appWindow.isThresholdBreached(
+          e->timestamp, AnomalyRules::LATERAL_MOVEMENT_WINDOW_SEC)) {
+    uint32_t uniqueApps = ctx.appWindow.countUnique();
+    if (uniqueApps >= AnomalyRules::LATERAL_MOVEMENT_THRESHOLD) {
+      recordAnomaly(AnomalyType::LATERAL_MOVEMENT, e);
+      ctx.lateralMovementReported = true;
+    }
+  }
+}
+
+// ============================================================================
 // Các hàm Tiện ích (Utilities)
 // ============================================================================
 
@@ -311,6 +400,12 @@ const char *AnomalyDetector::anomalyTypeToString(AnomalyType type) {
     return "BRUTE_FORCE_SUCCESS";
   case AnomalyType::DORMANT_ACCOUNT:
     return "DORMANT_ACCOUNT";
+  case AnomalyType::DATA_EXFILTRATION:
+    return "DATA_EXFILTRATION";
+  case AnomalyType::COMPROMISED_DEVICE:
+    return "COMPROMISED_DEVICE";
+  case AnomalyType::LATERAL_MOVEMENT:
+    return "LATERAL_MOVEMENT";
   default:
     return "UNKNOWN";
   }
@@ -342,7 +437,7 @@ void AnomalyDetector::printReport(const StringPool &pool) const {
   }
 
   // --- 1. Dem theo loai anomaly ---
-  const uint32_t TYPE_COUNT = 11;
+  const uint32_t TYPE_COUNT = 14;
   uint32_t countByType[TYPE_COUNT] = {};
   for (uint32_t i = 0; i < results.size(); ++i) {
     uint8_t idx = static_cast<uint8_t>(results[i].type);
@@ -354,7 +449,7 @@ void AnomalyDetector::printReport(const StringPool &pool) const {
   std::cout << "  ----------------------------------------------------------\n";
 
   // Critical (Do sang)
-  uint32_t critical = countByType[9] + countByType[4] + countByType[10];
+  uint32_t critical = countByType[9] + countByType[4] + countByType[10] + countByType[11];
   std::cout << ConsoleColor::BRED << "  [CRITICAL] " << critical << " alerts"
             << ConsoleColor::RESET << '\n';
   if (countByType[9] > 0)
@@ -366,11 +461,17 @@ void AnomalyDetector::printReport(const StringPool &pool) const {
   if (countByType[10] > 0)
     std::cout << ConsoleColor::BRED << "    - Dormant Account     : "
               << countByType[10] << ConsoleColor::RESET << '\n';
+  if (countByType[11] > 0)
+    std::cout << ConsoleColor::BRED << "    - Data Exfiltration   : "
+              << countByType[11] << ConsoleColor::RESET << '\n';
 
   // High (Vang sang)
-  uint32_t high = countByType[7] + countByType[5] + countByType[2];
+  uint32_t high = countByType[7] + countByType[5] + countByType[2] + countByType[12];
   std::cout << ConsoleColor::BYELLOW << "  [HIGH]     " << high << " alerts"
             << ConsoleColor::RESET << '\n';
+  if (countByType[12] > 0)
+    std::cout << ConsoleColor::BYELLOW << "    - Compromised Device  : "
+              << countByType[12] << ConsoleColor::RESET << '\n';
   if (countByType[7] > 0)
     std::cout << ConsoleColor::BYELLOW << "    - Danger Chain        : "
               << countByType[7] << ConsoleColor::RESET << '\n';
@@ -383,9 +484,12 @@ void AnomalyDetector::printReport(const StringPool &pool) const {
 
   // Medium (Vang)
   uint32_t medium =
-      countByType[0] + countByType[1] + countByType[8] + countByType[6];
+      countByType[0] + countByType[1] + countByType[8] + countByType[6] + countByType[13];
   std::cout << ConsoleColor::YELLOW << "  [MEDIUM]   " << medium << " alerts"
             << ConsoleColor::RESET << '\n';
+  if (countByType[13] > 0)
+    std::cout << ConsoleColor::YELLOW << "    - Lateral Movement    : "
+              << countByType[13] << ConsoleColor::RESET << '\n';
   if (countByType[0] > 0)
     std::cout << ConsoleColor::YELLOW << "    - Brute Force         : "
               << countByType[0] << ConsoleColor::RESET << '\n';
@@ -475,17 +579,20 @@ bool AnomalyDetector::exportToCSV(const char *filepath,
     case AnomalyType::BRUTE_FORCE_SUCCESS:
     case AnomalyType::IMPOSSIBLE_TRAVEL:
     case AnomalyType::DORMANT_ACCOUNT:
+    case AnomalyType::DATA_EXFILTRATION:
       severity = "CRITICAL";
       break;
     case AnomalyType::DANGER_CHAIN:
     case AnomalyType::MULTI_COUNTRY_HOPPING:
     case AnomalyType::RESOURCE_SCAN:
+    case AnomalyType::COMPROMISED_DEVICE:
       severity = "HIGH";
       break;
     case AnomalyType::BRUTE_FORCE:
     case AnomalyType::DEVICE_HOPPING:
     case AnomalyType::RAPID_SESSION:
     case AnomalyType::LONG_SESSION:
+    case AnomalyType::LATERAL_MOVEMENT:
       severity = "MEDIUM";
       break;
     case AnomalyType::OUT_OF_HOURS:
