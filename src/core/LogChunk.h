@@ -7,15 +7,15 @@
 #include "LogEntry.h"
 
 /**
- * @brief Cấu trúc quản lý một khối bộ nhớ liền kề (Contiguous Block) dành riêng
- * cho các `LogEntry`.
+ * @brief Manages a Contiguous Memory Block exclusively
+ * for `LogEntry` objects.
  *
- * @note Đây là thành phần lõi của cơ chế Arena Allocation. Thay vì cấp phát
- * từng đối tượng `LogEntry` bằng toán tử `new` rời rạc, Engine sẽ cấp phát một
- * "Chunk" lớn chứa hàng ngàn phần tử. Kiến trúc này giải quyết triệt để vấn đề
- * phân mảnh bộ nhớ Heap (Heap Fragmentation) và tăng cường tối đa tính địa
- * phương của dữ liệu (Cache Locality) trong quá trình quét tuần tự (Table Scan)
- * và sắp xếp.
+ * @note This is the core component of the Arena Allocation mechanism. Instead of allocating
+ * each `LogEntry` object with discrete `new` operators, the Engine allocates a
+ * large "Chunk" containing thousands of elements. This architecture completely resolves
+ * Heap Fragmentation and maximizes
+ * data locality (Cache Locality) during sequential scanning (Table Scan)
+ * and sorting.
  */
 class LogChunk {
 private:
@@ -24,29 +24,29 @@ private:
   uint32_t count;
 
   /**
-   * @brief Timestamps nhỏ nhất và lớn nhất trong Chunk. Được cập nhật O(1)
-   * sau mỗi lần append().
+   * @brief Minimum and maximum timestamps within the Chunk. Updated O(1)
+   * after each append().
    *
-   * Quyết định kiến trúc: Hai trường metadata này cho phép QueryEngine bỏ qua
-   * (skip) toàn bộ Chunk chỉ bằng 2 phép so sánh số nguyên khi truy vấn
-   * time-range không giao nhau với Chunk. Trên 10M rows / 8192 entries-per-chunk,
-   * điều này có thể cắt giảm 90%+ số Chunk cần quét, cải thiện tốc độ từ
-   * O(N) xuống O(overlapping_entries).
+   * Architecture decision: These two metadata fields allow QueryEngine to skip
+   * the entire Chunk using only 2 integer comparisons when querying
+   * a time-range that does not overlap with the Chunk. On 10M rows / 8192 entries-per-chunk,
+   * this can cut down 90%+ of Chunks needing to be scanned, improving speed from
+   * O(N) down to O(overlapping_entries).
    */
   int64_t minTimestamp;
   int64_t maxTimestamp;
 
 public:
   /**
-   * @brief Khởi tạo một Chunk mới với sức chứa (capacity) được chỉ định.
+   * @brief Initializes a new Chunk with the specified capacity.
    *
-   * @param chunkCapacity Số lượng đối tượng `LogEntry` tối đa mà Chunk này có
-   * thể chứa.
+   * @param chunkCapacity Maximum number of `LogEntry` objects this Chunk can
+   * hold.
    *
-   * @note Gọi trực tiếp toán tử `new[]` để cấp phát nguyên một mảng `LogEntry`
-   * liền kề trong O(1) (thời gian thực thi có thể thay đổi nhẹ tùy hệ điều
-   * hành). Do `LogEntry` có Constructor rỗng, chi phí khởi tạo sẽ ở mức thấp
-   * nhất.
+   * @note Directly calls `new[]` operator to allocate an entire contiguous
+   * array of `LogEntry` in O(1) (execution time may vary slightly depending on
+   * OS). Since `LogEntry` has an empty Constructor, initialization cost will be
+   * at the minimum.
    */
   explicit LogChunk(uint32_t chunkCapacity)
       : entries(nullptr), capacity(chunkCapacity), count(0),
@@ -57,12 +57,12 @@ public:
   }
 
   /**
-   * @brief Hủy Chunk và giải phóng toàn bộ khối bộ nhớ liền kề.
+   * @brief Destroys the Chunk and frees the entire contiguous memory block.
    *
-   * @note Việc gọi `delete[] entries` đảm bảo bộ nhớ được trao trả lại cho hệ
-   * điều hành. Do tập trung giải phóng hàng ngàn đối tượng cùng một lúc, chi
-   * phí quản lý Heap được giảm bớt đáng kể so với việc gọi `delete` hàng ngàn
-   * lần.
+   * @note Calling `delete[] entries` ensures memory is returned to the OS.
+   * Concentrating the deallocation of thousands of objects at once significantly
+   * reduces Heap management overhead compared to calling `delete` thousands of
+   * times.
    */
   ~LogChunk() {
     delete[] entries;
@@ -72,33 +72,33 @@ public:
   }
 
   /**
-   * @brief Vô hiệu hóa sao chép (Copying) đối với cấu trúc bộ nhớ thô.
+   * @brief Disables Copying for raw memory structures.
    *
-   * @warning Do class này sở hữu độc quyền (owns) bộ nhớ Heap thông qua con trỏ
-   * thô, việc cho phép sử dụng Copy Constructor hoặc toán tử gán mặc định sẽ
-   * dẫn đến lỗi giải phóng bộ nhớ kép (Double-Free Bug) hoặc hỏng Heap.
+   * @warning Since this class exclusively owns Heap memory through a raw pointer,
+   * allowing the use of Copy Constructor or default assignment operator will
+   * lead to Double-Free Bugs or Heap corruption.
    */
   LogChunk(const LogChunk &other) = delete;
   LogChunk &operator=(const LogChunk &other) = delete;
 
   /**
-   * @brief Kiểm tra xem Chunk hiện tại có còn sức chứa hay không.
+   * @brief Checks if the current Chunk still has capacity.
    *
-   * @note Hàm inline với chi phí gọi là O(1).
+   * @note Inline function with O(1) call cost.
    */
   bool hasSpace() const { return count < capacity; }
 
   /**
-   * @brief Gắn thêm (append) một đối tượng `LogEntry` vào vị trí trống tiếp
-   * theo trong Chunk.
+   * @brief Appends a `LogEntry` object to the next empty position
+   * in the Chunk.
    *
-   * @param entry Bản ghi log đầu vào (sẽ được copy dữ liệu vào Chunk).
-   * @return Con trỏ trỏ đến vị trí lưu trữ thực tế của bản ghi bên trong Chunk,
-   * hoặc `nullptr` nếu Chunk đã đầy.
+   * @param entry Input log record (data will be copied into the Chunk).
+   * @return Pointer to the actual storage location of the record inside the Chunk,
+   * or `nullptr` if the Chunk is full.
    *
-   * @note Độ phức tạp O(1). Đây là thao tác Placement/Copy siêu tốc. Con trỏ
-   * trả về là địa chỉ bộ nhớ ổn định, sẽ được dùng để xây dựng cấu trúc Index
-   * mà không bị mất hiệu lực.
+   * @note O(1) complexity. This is an ultra-fast Placement/Copy operation. The returned
+   * pointer is a stable memory address, which will be used to build the Index structure
+   * without being invalidated.
    */
   LogEntry *append(const LogEntry &entry) {
     if (!hasSpace()) {
@@ -116,41 +116,40 @@ public:
   }
 
   /**
-   * @brief Truy cập mảng thô (Raw Array) phục vụ quét tuần tự (Sequential
-   * Scan).
-   * @return Con trỏ tới phần tử đầu tiên của mảng `LogEntry`.
+   * @brief Accesses the Raw Array for Sequential Scan.
+   * @return Pointer to the first element of the `LogEntry` array.
    */
   LogEntry *raw() { return entries; }
 
   /**
-   * @brief Truy cập mảng thô (Read-only).
+   * @brief Accesses the Raw Array (Read-only).
    */
   const LogEntry *raw() const { return entries; }
 
   /**
-   * @brief Lấy số lượng bản ghi hiện có trong Chunk.
+   * @brief Gets the current number of records in the Chunk.
    */
   uint32_t size() const { return count; }
 
   /**
-   * @brief Lấy sức chứa tối đa của Chunk.
+   * @brief Gets the maximum capacity of the Chunk.
    */
   uint32_t getCapacity() const { return capacity; }
 
   /**
-   * @brief Trả về timestamp nhỏ nhất trong Chunk (O(1)).
-   * Được dùng bởi QueryEngine để skip Chunk không nằm trong time-range.
+   * @brief Returns the minimum timestamp in the Chunk (O(1)).
+   * Used by QueryEngine to skip Chunks not in the time-range.
    */
   int64_t getMinTimestamp() const { return minTimestamp; }
 
   /**
-   * @brief Trả về timestamp lớn nhất trong Chunk (O(1)).
-   * Được dùng bởi QueryEngine để skip Chunk không nằm trong time-range.
+   * @brief Returns the maximum timestamp in the Chunk (O(1)).
+   * Used by QueryEngine to skip Chunks not in the time-range.
    */
   int64_t getMaxTimestamp() const { return maxTimestamp; }
 
   /**
-   * @brief Cho phép BinaryIO khôi phục timestamp metadata khi load binary.
+   * @brief Allows BinaryIO to restore timestamp metadata when loading binary.
    */
   void setTimestampRange(int64_t min, int64_t max) {
     minTimestamp = min;
@@ -158,7 +157,7 @@ public:
   }
 
   /**
-   * @brief Cho phép BinaryIO thiết lập count sau khi fread nguyên khối entries.
+   * @brief Allows BinaryIO to set count after fread-ing the entire entries block.
    */
   void setCount(uint32_t c) { count = c; }
 };

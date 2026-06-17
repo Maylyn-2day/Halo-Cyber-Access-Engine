@@ -1,7 +1,7 @@
 // test_engine.cpp
-// Unit Tests cho Halo Cyber Access Engine
-// Chạy: biên dịch file này riêng và thực thi. Nếu không crash = PASS.
-// Dùng assert() thuần C — không cần framework bên ngoài.
+// Unit Tests for Halo Cyber Access Engine
+// Run: compile this file separately and execute. If no crash = PASS.
+// Use pure C assert() - no external framework needed.
 
 #include <cassert>
 #include <cstring>
@@ -16,7 +16,7 @@
 #include "anomaly/RingBuffer.h"
 
 // ============================================================================
-// Helper: In kết quả test
+// Helper: Print test results
 // ============================================================================
 static int testsPassed = 0;
 static int testsFailed = 0;
@@ -37,7 +37,7 @@ void reportResult(const char *testName, bool passed) {
 void testDynamicArray() {
   std::cout << "\n--- DynamicArray Tests ---\n";
 
-  // Test push và access
+  // Test push and access
   DynamicArray<int> arr(4);
   arr.pushBack(10);
   arr.pushBack(20);
@@ -46,7 +46,7 @@ void testDynamicArray() {
   reportResult("arr[0] == 10", arr[0] == 10);
   reportResult("arr[2] == 30", arr[2] == 30);
 
-  // Test auto-resize (vượt capacity 4)
+  // Test auto-resize (exceed capacity 4)
   arr.pushBack(40);
   arr.pushBack(50);
   reportResult("auto-resize, size == 5", arr.size() == 5);
@@ -88,22 +88,22 @@ void testDuplicateHashSet() {
   set.insertIfAbsent(333ULL);
   reportResult("insert 3 more, size == 4", set.size() == 4);
 
-  // Test collision: cùng bucket (modulo 16)
+  // Test collision: same bucket (modulo 16)
   set.insertIfAbsent(0ULL);
-  set.insertIfAbsent(16ULL);  // Cùng bucket với 0
-  set.insertIfAbsent(32ULL);  // Cùng bucket với 0 và 16
+  set.insertIfAbsent(16ULL);  // Same bucket as 0
+  set.insertIfAbsent(32ULL);  // Same bucket as 0 and 16
   reportResult("3 collisions handled, size == 7", set.size() == 7);
 
   // Verify no false positives
   bool notFound = set.insertIfAbsent(999ULL);
   reportResult("new fingerprint 999 accepted", notFound == true);
 
-  // Test rehash (insert nhiều hơn 75% capacity)
+  // Test rehash (insert more than 75% capacity)
   DuplicateHashSet small(4);
   small.insertIfAbsent(1ULL);
   small.insertIfAbsent(2ULL);
   small.insertIfAbsent(3ULL);
-  small.insertIfAbsent(4ULL);  // Vượt 75% → trigger rehash
+  small.insertIfAbsent(4ULL);  // Exceeds 75% -> trigger rehash
   small.insertIfAbsent(5ULL);
   reportResult("rehash: 5 items in capacity-4 set, size == 5",
                small.size() == 5);

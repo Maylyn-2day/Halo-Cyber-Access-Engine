@@ -7,32 +7,32 @@
 #include <string>
 
 /**
- * @brief Cấu trúc Hash Set chuyên biệt lưu trữ dấu vân tay (fingerprint)
- * 64-bit của dữ liệu CSV thô.
+ * @brief Specialized Hash Set structure for storing 64-bit fingerprints of raw
+ * CSV data.
  *
- * Quyết định kiến trúc: Sử dụng kỹ thuật Open-Addressing với Robin Hood
- * Hashing thay vì Separate Chaining. Toàn bộ entry được lưu inline trong
- * một mảng phẳng (flat array), loại bỏ hoàn toàn chi phí cấp phát heap
- * cho từng node (10M+ lần `new` → 0 lần). Điều này tăng Cache Locality
- * đáng kể vì CPU prefetcher chỉ cần quét tuần tự trên 1 vùng nhớ liền mạch
- * thay vì nhảy lung tung trên heap.
+ * Architecture decision: Use Open-Addressing with Robin Hood Hashing instead of
+ * Separate Chaining. The entire entry is stored inline in a flat array,
+ * completely eliminating heap allocation overhead for each node (10M+ `new`
+ * calls → 0 calls). This significantly increases Cache Locality because the CPU
+ * prefetcher only needs to scan sequentially on a contiguous memory region
+ * instead of jumping around the heap.
  *
- * Robin Hood Hashing: Khi xảy ra collision, entry mới sẽ "cướp" vị trí
- * của entry có khoảng cách thăm dò (probe distance) ngắn hơn. Điều này
- * giữ cho probe distance trung bình cực kỳ thấp (thường < 2), đảm bảo
- * hiệu năng O(1) thực tế ngay cả khi load factor lên tới 70-80%.
+ * Robin Hood Hashing: When a collision occurs, the new entry "steals" the
+ * position of the entry with a shorter probe distance. This keeps the average
+ * probe distance extremely low (usually < 2), ensuring practical O(1)
+ * performance even when the load factor reaches 70-80%.
  */
 class DuplicateHashSet {
 private:
   /**
-   * @brief Slot inline trong mảng phẳng. Không cần con trỏ `next`.
-   * Kích thước: 16 bytes (8 fingerprint + 4 probeDistance + 4 padding/flags).
+   * @brief Inline slot in the flat array. No need for a `next` pointer.
+   * Size: 16 bytes (8 fingerprint + 4 probeDistance + 4 padding/flags).
    */
   struct Slot {
-    unsigned long long fingerprint; ///< Dấu vân tay 64-bit.
+    unsigned long long fingerprint; ///< 64-bit fingerprint.
     uint32_t
-        probeDistance; ///< Khoảng cách từ bucket gốc (Robin Hood metadata).
-    bool occupied;     ///< Cờ đánh dấu slot đang chứa dữ liệu hợp lệ.
+        probeDistance; ///< Distance from original bucket (Robin Hood metadata).
+    bool occupied;     ///< Flag marking the slot contains valid data.
     uint8_t _pad[3];   ///< Padding alignment.
 
     Slot() : fingerprint(0), probeDistance(0), occupied(false) {
@@ -40,15 +40,17 @@ private:
     }
   };
 
-  Slot *slots;        ///< Mảng phẳng chứa toàn bộ entries inline.
-  uint32_t capacity;  ///< Kích thước mảng (số lượng slots).
-  uint32_t itemCount; ///< Số lượng fingerprint duy nhất đang lưu.
+  Slot *slots;        ///< Flat array containing all entries inline.
+  uint32_t capacity;  ///< Array size (number of slots).
+  uint32_t itemCount; ///< Number of unique fingerprints currently stored.
 
   /**
-   * @brief Tự động mở rộng và rehash khi load factor vượt ngưỡng 75%.
+   * @brief Automatically expands and rehashes when load factor exceeds 75%
+   * threshold.
    *
-   * Robin Hood rehash: Duyệt mảng cũ, chỉ insert các slot occupied vào
-   * mảng mới. Không cần duyệt linked-list → nhanh hơn Separate Chaining rehash.
+   * Robin Hood rehash: Iterate through the old array, only insert occupied
+   * slots into the new array. No need to traverse a linked-list → faster than
+   * Separate Chaining rehash.
    */
   void rehash(uint32_t newCapacity) {
     Slot *oldSlots = slots;
@@ -68,8 +70,8 @@ private:
   }
 
   /**
-   * @brief Insert nội bộ dùng Robin Hood probing.
-   * Được gọi bởi cả insertIfAbsent (public) và rehash (private).
+   * @brief Internal insert using Robin Hood probing.
+   * Called by both insertIfAbsent (public) and rehash (private).
    */
   void insertInternal(unsigned long long fingerprint) {
     uint32_t index = static_cast<uint32_t>(fingerprint % capacity);
@@ -77,7 +79,7 @@ private:
 
     while (true) {
       if (!slots[index].occupied) {
-        // Slot trống → chèn vào
+        // Empty slot → insert
         slots[index].fingerprint = fingerprint;
         slots[index].probeDistance = dist;
         slots[index].occupied = true;
@@ -85,10 +87,10 @@ private:
         return;
       }
 
-      // Robin Hood: nếu entry hiện tại "giàu hơn" (probe distance ngắn hơn),
-      // ta cướp vị trí của nó và đẩy nó đi tìm chỗ mới.
+      // Robin Hood: if the current entry is "richer" (shorter probe distance),
+      // we steal its position and push it away to find a new spot.
       if (slots[index].probeDistance < dist) {
-        // Swap: entry hiện tại bị đẩy ra
+        // Swap: current entry is pushed out
         unsigned long long tmpFp = slots[index].fingerprint;
         uint32_t tmpDist = slots[index].probeDistance;
 
@@ -99,7 +101,7 @@ private:
         dist = tmpDist;
       }
 
-      // Linear probing: tiến sang slot kế tiếp
+      // Linear probing: advance to the next slot
       index = (index + 1) % capacity;
       ++dist;
     }
@@ -107,9 +109,9 @@ private:
 
 public:
   /**
-   * @brief Khởi tạo bảng băm Open-Addressing với capacity cho trước.
+   * @brief Initializes Open-Addressing hash table with a given capacity.
    *
-   * @param bucketSize Kích thước mảng slots (Khuyến nghị số nguyên tố).
+   * @param bucketSize Size of the slots array (Prime number recommended).
    */
   explicit DuplicateHashSet(uint32_t bucketSize)
       : slots(nullptr), capacity(bucketSize), itemCount(0) {
@@ -121,8 +123,8 @@ public:
   }
 
   /**
-   * @brief Giải phóng mảng phẳng. Chỉ 1 lệnh delete[] duy nhất.
-   * So với Separate Chaining: tiết kiệm O(N) lần delete node.
+   * @brief Frees the flat array. Only 1 single delete[] command.
+   * Compared to Separate Chaining: saves O(N) node deletion calls.
    */
   ~DuplicateHashSet() {
     delete[] slots;
@@ -131,12 +133,12 @@ public:
     itemCount = 0;
   }
 
-  // Vô hiệu hóa Copy để bảo vệ quyền sở hữu bộ nhớ.
+  // Disable Copy to protect memory ownership.
   DuplicateHashSet(const DuplicateHashSet &other) = delete;
   DuplicateHashSet &operator=(const DuplicateHashSet &other) = delete;
 
   /**
-   * @brief Thuật toán băm chuỗi djb2 chuẩn.
+   * @brief Standard djb2 string hashing algorithm.
    */
   static unsigned long long djb2(const std::string &line) {
     unsigned long long hash = 5381ULL;
@@ -149,18 +151,18 @@ public:
   }
 
   /**
-   * @brief Thẩm định và chèn fingerprint bằng Robin Hood probing.
+   * @brief Validates and inserts fingerprint using Robin Hood probing.
    *
-   * Thuật toán: O(1) trung bình. Probe distance trung bình với Robin Hood
-   * thường < 2 ngay cả ở load factor 70%. Nếu load factor vượt 75%,
-   * tự động rehash để duy trì hiệu năng.
+   * Algorithm: O(1) average. Average probe distance with Robin Hood is usually
+   * < 2 even at 70% load factor. If load factor exceeds 75%, it automatically
+   * rehashes to maintain performance.
    *
-   * @param fingerprint Vân tay 64-bit cần thẩm định.
-   * @return true nếu fingerprint mới (đã chèn thành công).
-   * @return false nếu fingerprint đã tồn tại (từ chối dòng trùng lặp).
+   * @param fingerprint 64-bit fingerprint to validate.
+   * @return true if new fingerprint (successfully inserted).
+   * @return false if fingerprint already exists (rejects duplicate line).
    */
   bool insertIfAbsent(unsigned long long fingerprint) {
-    // Rehash nếu load factor > 75%
+    // Rehash if load factor > 75%
     if (itemCount * 4 >= capacity * 3) {
       rehash(capacity * 2 + 1);
     }
@@ -170,7 +172,7 @@ public:
 
     while (true) {
       if (!slots[index].occupied) {
-        // Slot trống → fingerprint chưa tồn tại → chèn
+        // Empty slot → fingerprint doesn't exist → insert
         slots[index].fingerprint = fingerprint;
         slots[index].probeDistance = dist;
         slots[index].occupied = true;
@@ -178,20 +180,20 @@ public:
         return true;
       }
 
-      // Fingerprint đã tồn tại → từ chối
+      // Fingerprint already exists → reject
       if (slots[index].fingerprint == fingerprint) {
         return false;
       }
 
-      // Robin Hood: nếu probe distance hiện tại ngắn hơn của ta,
-      // ta chắc chắn fingerprint không nằm sau vị trí này nữa
-      // (tính chất Robin Hood invariant).
-      // Tuy nhiên, để an toàn với rehash, ta vẫn tiếp tục probing
-      // cho đến khi gặp slot trống hoặc match.
+      // Robin Hood: if the current probe distance is shorter than ours,
+      // we are sure the fingerprint is no longer behind this position
+      // (Robin Hood invariant property).
+      // However, to be safe with rehash, we still continue probing
+      // until we hit an empty slot or match.
 
-      // Nếu entry hiện tại "giàu hơn" → cướp vị trí (Robin Hood swap)
+      // If current entry is "richer" → steal position (Robin Hood swap)
       if (slots[index].probeDistance < dist) {
-        // Swap và tiếp tục tìm chỗ cho entry bị đẩy ra
+        // Swap and continue finding a spot for the pushed out entry
         unsigned long long tmpFp = slots[index].fingerprint;
         uint32_t tmpDist = slots[index].probeDistance;
 

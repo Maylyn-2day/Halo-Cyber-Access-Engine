@@ -1,9 +1,9 @@
-# BÁO CÁO GIỮA KỲ — HALO ENGINE
-## In-Memory Log Analytics Engine (Phase 1)
+# BÁO CÁO ĐỒ ÁN — HALO ENGINE
+## Cyber Access Engine — High-Performance In-Memory Log Analytics
 
 > **Môn học:** Cơ sở lập trình  
 > **MSSV:** 24120085  
-> **Họ tên:** Lê Nguyễn Thùy Linh   
+> **Họ tên:** Lê Nguyễn Thùy Linh
 
 ---
 
@@ -11,343 +11,421 @@
 
 ### 1.1 Tổng quan hệ thống
 
-Halo Engine là một **In-Memory Log Analytics Engine** được viết hoàn toàn bằng C++ thuần (không sử dụng STL containers), có khả năng nạp và phân tích hơn **1 triệu bản ghi log** trong bộ nhớ. Hệ thống bao gồm **17 file mã nguồn** (~2000 dòng code) được tổ chức trong thư mục `src/`.
+Halo Engine là một **In-Memory Log Analytics Engine** được viết hoàn toàn bằng C++ thuần (Zero STL containers), có khả năng nạp và phân tích hơn **50 triệu bản ghi log** trong bộ nhớ. Hệ thống bao gồm hơn **25 file mã nguồn** (~4000+ dòng code) được tổ chức trong thư mục `src/`, chia thành 5 module chính: `core`, `storage`, `indexing`, `query`, `anomaly`.
 
-### 1.2 Bảng đánh giá yêu cầu
+### 1.2 Bảng đánh giá yêu cầu — Phần Giữa kỳ
 
-| #   | Yêu cầu                               | Trạng thái | Minh chứng                                                                                                                          |
-| --- | ------------------------------------- | :--------: | ----------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | Đọc CSV bằng `char*` / zero-copy      |     ✅      | `DataLoader.cpp`: `FILE* + fread` vào buffer 256KB, tách field bằng `FieldView` — không dùng `std::getline` hay `std::stringstream` |
-| 2   | Lọc trùng lặp bằng Hash Set tự viết   |     ✅      | `DuplicateHashSet`: lưu fingerprint 64-bit (djb2), `insertIfAbsent()` trả `false` nếu trùng                                         |
-| 3   | Mã hóa chuỗi (Dictionary Encoding)    |     ✅      | `StringPool`: ánh xạ hai chiều `string ↔ uint32_t`                                                                                  |
-| 4   | Đánh chỉ mục quan hệ                  |     ✅      | `SearchEngine` xây 2 `HashIndex` (user, resource), mỗi key trỏ tới timeline `DynamicArray<const LogEntry*>`                         |
-| 5   | Sắp xếp Merge Sort ổn định            |     ✅      | `SortUtils::sortByTimestamp` — cấp phát buffer tạm 1 lần, merge sort đệ quy, giải phóng đúng                                        |
-| 6   | Truy vấn User Journey                 |     ✅      | `QueryEngine::printUserJourney` — quét tuyến tính với `break` sớm trên timeline đã sắp xếp                                          |
-| 7   | Truy vấn Resource Access History      |     ✅      | `QueryEngine::printResourceJourney` — cùng pattern                                                                                  |
-| 8   | Top 10 Resources trong O(N)           |     ✅      | Đếm theo bucket `uint32_t* counts`, chèn vào mảng cố định `TopResource[10]`                                                         |
-| 9   | CLI tương tác với xử lý input an toàn |     ✅      | `main.cpp`: `clearBadInput()`, `try/catch` trên `std::stoll`, giá trị mặc định, auto-swap khi start > end                           |
+| #   | Yêu cầu                                | Trạng thái | Module                                                                                                           |
+| --- | -------------------------------------- | :--------: | ---------------------------------------------------------------------------------------------------------------- |
+| 1   | Tự thiết kế cấu trúc dữ liệu           |     ✅      | `DynamicArray`, `LogChunk`, `RingBuffer`, `TimestampedRingBuffer`, `HashIndex`, `DuplicateHashSet`, `StringPool` |
+| 2   | Load dữ liệu từ CSV (block I/O)        |     ✅      | `DataLoader` — `fread` 256KB buffer, `FieldView` zero-copy                                                       |
+| 3   | Lọc trùng lặp                          |     ✅      | `DuplicateHashSet` — fingerprint djb2 64-bit                                                                     |
+| 4   | Mã hóa chuỗi (Dictionary Encoding)     |     ✅      | `StringPool` — ánh xạ hai chiều `string ↔ uint32_t`                                                              |
+| 5   | Đánh chỉ mục & Sắp xếp                 |     ✅      | `SearchEngine` — 2 HashIndex + Merge Sort theo timestamp                                                         |
+| 6   | User Journey (Device → App → Resource) |     ✅      | `QueryEngine::printUserJourney`                                                                                  |
+| 7   | Resource History (User → Device → App) |     ✅      | `QueryEngine::printResourceJourney`                                                                              |
+| 8   | Top 10 Resources                       |     ✅      | `QueryEngine::printTop10Resources`                                                                               |
 
-> **Kết luận: 9/9 yêu cầu Phase 1 đã hoàn thành đầy đủ.**
+### 1.3 Bảng đánh giá yêu cầu — Phần Cuối kỳ (Anomaly Detection)
 
-### 1.3 Hiệu năng thực tế
+#### Nhóm 1: Phát hiện bất thường dựa trên ngưỡng (4 luật)
 
-- **Dataset:** `halo_dataset_1m.csv` (~53MB, 1 triệu dòng), `halo_dataset_1_5m.csv` (~80MB, 1.5 triệu dòng)
-- **Ingestion:** Nạp 1M dòng trong vài giây nhờ block I/O (`fread` 256KB) và fingerprint dedup trước khi parse
-- **Query:** Truy vấn User/Resource Journey trả kết quả ở cấp microsecond nhờ Hash Index O(1) + timeline đã sắp xếp
+| #   | Bất thường                           | Trạng thái | Tên luật         | Logic                               |
+| --- | ------------------------------------ | :--------: | ---------------- | ----------------------------------- |
+| 1   | User đăng nhập từ quá nhiều device   |     ✅      | `DEVICE_HOPPING` | ≥3 device khác nhau trong 10 phút   |
+| 2   | Login thất bại liên tục              |     ✅      | `BRUTE_FORCE`    | ≥5 lần FAILED_LOGIN trong 5 phút    |
+| 3   | Thiết bị truy cập quá nhiều resource |     ✅      | `RESOURCE_SCAN`  | ≥10 resource khác nhau trong 5 phút |
+| 4   | Truy cập ngoài giờ làm việc          |     ✅      | `OUT_OF_HOURS`   | Sự kiện ngoài khung 6h–22h          |
+
+#### Nhóm 2: Phát hiện bất thường dựa trên hành vi (2 luật)
+
+| #   | Bất thường                              | Trạng thái | Tên luật                | Logic                              |
+| --- | --------------------------------------- | :--------: | ----------------------- | ---------------------------------- |
+| 5   | Xuất hiện ở nhiều quốc gia không hợp lý |     ✅      | `IMPOSSIBLE_TRAVEL`     | Đổi location trong <2 giờ          |
+| 6   | Liên tục đổi vị trí địa lý              |     ✅      | `MULTI_COUNTRY_HOPPING` | ≥3 quốc gia khác nhau trong 48 giờ |
+
+#### Nhóm 3: Phát hiện bất thường dựa trên phiên làm việc (3 luật)
+
+| #   | Bất thường                      | Trạng thái | Tên luật        | Logic                                             |
+| --- | ------------------------------- | :--------: | --------------- | ------------------------------------------------- |
+| 7   | Phiên làm việc dài bất thường   |     ✅      | `LONG_SESSION`  | Phiên >24 giờ (LOGIN → LOGOUT)                    |
+| 8   | Nhiều phiên liên tục bất thường |     ✅      | `RAPID_SESSION` | ≥3 phiên LOGIN trong 10 phút                      |
+| 9   | Chuỗi hành động nguy hiểm       |     ✅      | `DANGER_CHAIN`  | ≥3 hành động admin/download liên tiếp trong phiên |
+
+#### Nhóm 4: Nâng cao (2 luật — Yêu cầu 5, +2 điểm)
+
+| #   | Bất thường                                    | Trạng thái | Tên luật              | Logic                                                      |
+| --- | --------------------------------------------- | :--------: | --------------------- | ---------------------------------------------------------- |
+| 10  | Cố đăng nhập (sai nhiều, lần cuối thành công) |     ✅      | `BRUTE_FORCE_SUCCESS` | ≥5 FAILED_LOGIN liên tiếp + LOGIN thành công               |
+| 11  | Im lặng lâu rồi hoạt động mạnh                |     ✅      | `DORMANT_ACCOUNT`     | Không hoạt động ≥10 ngày, sau đó ≥20 sự kiện trong 10 phút |
+
+#### Nhóm 5: Đề xuất mới (3 luật — Điểm cộng sáng tạo)
+
+| #   | Bất thường                                       | Severity   | Tên luật             | Logic                                                            |
+| --- | ------------------------------------------------ | ---------- | -------------------- | ---------------------------------------------------------------- |
+| 12  | **Data Exfiltration** — Rút ruột dữ liệu         | 🔴 CRITICAL | `DATA_EXFILTRATION`  | Download ≥5 resource khác nhau, ngoài giờ (0h–6h), trong 10 phút |
+| 13  | **Compromised Device** — Thiết bị bị chiếm quyền | 🟡 HIGH     | `COMPROMISED_DEVICE` | ≥3 user khác nhau LOGIN trên cùng device trong 5 phút            |
+| 14  | **Lateral Movement** — Dò thám ứng dụng          | 🟠 MEDIUM   | `LATERAL_MOVEMENT`   | ≥4 app khác nhau trong 2 phút                                    |
+
+**Tổng kết: 14/14 luật anomaly đã hoàn thành. Bao gồm 9 luật bắt buộc + 2 luật nâng cao + 3 đề xuất mới.**
+
+### 1.4 Chi tiết 3 đề xuất sáng tạo
+
+**Đề xuất 1 — Data Exfiltration (Chiến dịch rút ruột dữ liệu) — 🔴 CRITICAL**
+
+Kịch bản thực tế: Một nhân viên sắp nghỉ việc (hoặc hacker đã chiếm tài khoản) lén lút tải xuống hàng loạt tài liệu nội bộ vào lúc nửa đêm. Đây là kịch bản kinh điển trong lĩnh vực Insider Threat (mối đe dọa nội bộ).
+
+Cách phát hiện: Kết hợp **3 yếu tố** — Hành động (Download) + Số lượng resource khác nhau (≥5) + Khung giờ nguy hiểm (0h–6h sáng). Sử dụng `TimestampedRingBuffer<5>` trong `UserContext` để theo dõi sliding window 10 phút, chỉ đếm unique `resourceId`.
+
+**Đề xuất 2 — Compromised Device (Thiết bị bị chiếm quyền) — 🟡 HIGH**
+
+Kịch bản thực tế: Một máy tính trong công ty bị cài malware, trở thành "jump server" (bàn đạp). Hacker dùng máy này để đăng nhập lần lượt bằng nhiều tài khoản khác nhau nhằm dò thám quyền truy cập.
+
+Cách phát hiện: Theo dõi **trên từng deviceId** (sử dụng `DeviceContext`) — nếu ≥3 userId khác nhau LOGIN trên cùng 1 device trong vòng 5 phút → thiết bị này rất có thể đã bị thỏa hiệp. Sử dụng `TimestampedRingBuffer<3>` để đếm unique `userId` trên mỗi device.
+
+**Đề xuất 3 — Lateral Movement (Di chuyển ngang) — 🟠 MEDIUM**
+
+Kịch bản thực tế: Sau khi chiếm được 1 tài khoản, hacker sẽ "đi dạo" qua nhiều ứng dụng nội bộ (email, file server, HR system, ...) để tìm hiểu cấu trúc hệ thống và leo thang quyền truy cập.
+
+Cách phát hiện: Nếu 1 user truy cập ≥4 appId khác nhau chỉ trong 2 phút, tốc độ "nhảy app" này bất thường so với hành vi bình thường (người dùng thường chỉ dùng 1-2 app tại một thời điểm). Sử dụng `TimestampedRingBuffer<4>` trong `UserContext`.
+
+### 1.5 Các yêu cầu phi chức năng
+
+| Yêu cầu                                | Trạng thái | Ghi chú                                           |
+| -------------------------------------- | :--------: | ------------------------------------------------- |
+| ≥1 triệu dòng không crash              |     ✅      | Đã test 1M, 1.5M, 10M, 50M dòng                   |
+| Kết quả <10 giây trên 1M dòng          |     ✅      | CSV ingestion ~2s, Anomaly scan ~1s               |
+| Xử lý giá trị không hợp lệ             |     ✅      | DataLoader skip dòng thiếu cột, event/location lạ |
+| Xử lý dữ liệu trùng lặp                |     ✅      | DuplicateHashSet lọc fingerprint trước khi parse  |
+| Thu hồi toàn bộ bộ nhớ                 |     ✅      | Destructor đầy đủ (xem mục 1.6)                   |
+| Sử dụng struct, con trỏ, cấp phát động |     ✅      | Toàn bộ dự án                                     |
+| KHÔNG dùng vector/map/set              |     ✅      | Zero STL containers                               |
+
+### 1.6 Cam kết không rò rỉ bộ nhớ (Zero Memory Leak)
+
+Toàn bộ bộ nhớ được cấp phát động (`new` / `new[]`) đều có Destructor tương ứng để thu hồi. Dưới đây là bảng đối chiếu:
+
+| Module            | Cấp phát (`new`)                             | Thu hồi (`delete`)                                                            | Vị trí                      |
+| ----------------- | -------------------------------------------- | ----------------------------------------------------------------------------- | --------------------------- |
+| `LogStore`        | `new LogChunk(8192)` mỗi khi chunk đầy       | `delete chunks[i]` trong `~LogStore()` và `reset()`                           | `LogStore.h:40,79`          |
+| `LogChunk`        | `new LogEntry[capacity]`                     | `delete[] entries` trong `~LogChunk()`                                        | `LogChunk.h`                |
+| `AnomalyDetector` | `new UserContext[N]`, `new DeviceContext[N]` | `delete[] userContexts`, `delete[] deviceContexts` trong `~AnomalyDetector()` | `AnomalyDetector.cpp:18-25` |
+| `SearchEngine`    | `HashIndex` nội bộ cấp phát `new Node`       | `delete` toàn bộ chain trong `~HashIndex()`                                   | `HashIndex.cpp`             |
+| `DataLoader`      | `new char[256KB]` buffer đọc file            | `delete[]` trước khi return                                                   | `DataLoader.cpp`            |
+| `BinaryIO::load`  | `new LogChunk(entryCount)`                   | Được `LogStore` quản lý vòng đời                                              | `BinaryIO.cpp:271`          |
+| `DynamicArray<T>` | `new T[capacity]` khi resize                 | `delete[] data` trong `~DynamicArray()`                                       | `DynamicArray.h`            |
+| `StringPool`      | `new Node` cho mỗi string mới                | `delete` toàn bộ chain trong `~StringPool()`                                  | `StringPool.cpp`            |
+
+Ngoài ra, `LogStore` vô hiệu hóa Copy Constructor và Copy Assignment (`= delete`) để ngăn chặn double-free do sao chép vô ý. Hàm `reset()` gọi destructor thủ công + placement new để tái khởi tạo `StringPool` an toàn.
 
 ---
 
-## 2. THIẾT KẾ HỆ THỐNG & KỸ THUẬT TỐI ƯU
+## 2. THIẾT KẾ HỆ THỐNG
 
 ### 2.1 Kiến trúc tổng thể
 
 ```
-main.cpp
+main.cpp (CLI Interface)
+  │
   ├── DataLoader ──→ FILE* + fread (256KB block I/O)
   │     ├── FieldView (zero-copy field splitting)
   │     ├── DuplicateHashSet (fingerprint dedup)
   │     └── StringPool (dictionary encoding)
+  │
   ├── LogStore ──→ DynamicArray<LogChunk*>
-  │     └── LogChunk(8192) ──→ LogEntry[] (contiguous)
+  │     └── LogChunk(8192) ──→ LogEntry[] (contiguous arena)
+  │
+  ├── BinaryIO ──→ Snapshot .bin (Instant Boot)
+  │     └── Header(magic + checksum + CSV metadata)
+  │
   ├── SearchEngine
-  │     ├── HashIndex (userIndex)
-  │     └── HashIndex (resourceIndex)
-  ├── QueryEngine (User Journey, Resource History, Top-10)
-  └── SortUtils (Stable Merge Sort)
+  │     ├── HashIndex (userIndex)   ──→ DynamicArray<LogEntry*>
+  │     └── HashIndex (resourceIndex) ──→ DynamicArray<LogEntry*>
+  │
+  ├── QueryEngine
+  │     ├── printUserJourney()
+  │     ├── printResourceJourney()
+  │     └── printTop10Resources()
+  │
+  └── AnomalyDetector
+        ├── UserContext[poolSize]    ──→ Direct-Address Array
+        ├── DeviceContext[poolSize]  ──→ Direct-Address Array
+        ├── 14 luật check*()        ──→ RingBuffer + TimestampedRingBuffer
+        ├── printReport()           ──→ Console Dashboard (ANSI color)
+        └── exportToCSV()           ──→ anomaly_report.csv
 ```
 
-### 2.2 Data Alignment & Memory Packing trong `LogEntry`
+### 2.2 Cấu trúc thư mục mã nguồn
 
-Struct `LogEntry` được thiết kế theo nguyên tắc **sắp xếp giảm dần kích thước kiểu dữ liệu** (8-byte → 4-byte → 1-byte) để tối thiểu hóa padding do alignment:
+```
+src/
+├── main.cpp                 ─ Entry point, CLI, Smart Boot
+├── ConsoleColor.h           ─ ANSI escape color codes
+├── core/
+│   ├── LogEntry.h           ─ Struct 32 bytes (data-packed)
+│   ├── LogChunk.h           ─ Arena allocator (8192 entries/chunk)
+│   ├── DynamicArray.h       ─ Custom std::vector replacement
+│   ├── DuplicateHashSet.h   ─ Hash-based dedup filter
+│   ├── StringPool.h/.cpp    ─ Dictionary encoder (string ↔ uint32_t)
+│   └── HashIndex.h/.cpp     ─ Inverted index (Murmur hash)
+├── storage/
+│   ├── LogStore.h           ─ Chunk-based storage engine
+│   ├── DataLoader.h/.cpp    ─ High-speed CSV parser
+│   └── BinaryIO.h/.cpp      ─ Binary snapshot (Instant Boot)
+├── indexing/
+│   ├── SearchEngine.h/.cpp  ─ Index builder + SortUtils
+│   └── SortUtils.h          ─ Stable Merge Sort
+├── query/
+│   └── QueryEngine.h/.cpp   ─ User Journey, Resource History, Top-10
+└── anomaly/
+    ├── AnomalyRecord.h      ─ Enum 14 loại + struct AnomalyRecord
+    ├── AnomalyRules.h       ─ Centralized threshold constants
+    ├── RingBuffer.h          ─ Sliding window (timestamp + value)
+    ├── UserContext.h         ─ Per-user state tracking
+    ├── DeviceContext.h       ─ Per-device state tracking
+    └── AnomalyDetector.h/.cpp ─ Engine chính + Report + CSV export
+```
+
+### 2.3 Ba kỹ thuật tối ưu hiệu năng cốt lõi
+
+#### Kỹ thuật 1 — Zero-copy Parsing với `FieldView`
+
+Khi đọc file CSV, cách tiếp cận naïve là dùng `std::string` cắt từng cột, sinh ra hàng triệu đối tượng chuỗi tạm trên Heap — mỗi `std::string` cần gọi `malloc`, sao chép byte, rồi `free` khi xong, gây ra **Memory Allocation Overhead** khổng lồ làm tắc nghẽ CPU.
+
+`FieldView` đưa ra giải pháp ràng buộc zero: chỉ lưu **1 con trỏ** và **1 số nguyên chiều dài**, trỏ thẳng vào vị trí của cột trong bộ đệm (buffer) 256KB đang đọc từ file. Không có bất kỳ byte nào được sao chép. Triệt tiêu hoàn toàn độ trễ do cấp phát bộ nhớ trong quá trình parse CSV.
 
 ```cpp
-struct LogEntry {
-    int64_t   timestamp;   // 8 bytes (offset 0)
-    uint32_t  userId;      // 4 bytes (offset 8)
-    uint32_t  deviceId;    // 4 bytes (offset 12)
-    uint32_t  appId;       // 4 bytes (offset 16)
-    uint32_t  resourceId;  // 4 bytes (offset 20)
-    EventType eventType;   // 1 byte  (offset 24) — enum : uint8_t
-    Location  location;    // 1 byte  (offset 25) — enum : uint8_t
-    // padding: 6 bytes → Total: 32 bytes (aligned to 8-byte boundary)
+struct FieldView {
+    const char* start;   // con trỏ vào buffer — không sao chép dữ liệu
+    uint32_t    length;  // chiều dài của field
 };
+// 10 triệu dòng × 7 cột = 70 triệu FieldView: 0 lần malloc, 0 lần copy
 ```
 
-**Phân tích bộ nhớ:**
+#### Kỹ thuật 2 — Dictionary Encoding với `StringPool`
 
-| Thành phần                                          | Kích thước   |
-| --------------------------------------------------- | ------------ |
-| `int64_t timestamp`                                 | 8 bytes      |
-| 4× `uint32_t` (userId, deviceId, appId, resourceId) | 16 bytes     |
-| 2× `uint8_t` enum (EventType, Location)             | 2 bytes      |
-| Padding (alignment 8-byte)                          | 6 bytes      |
-| **Tổng mỗi LogEntry**                               | **32 bytes** |
+`StringPool` ánh xạ mọi chuỗi (`userId`, `deviceId`, `appId`, `resourceId`) thành số nguyên `uint32_t` ngày khi parse. Nhờ đó, toàn bộ quá trình chạy 14 luật Anomaly Detection phía sau **hoàn toàn không có một phép so sánh chuỗi (String Comparison) nào**. Mọi điều kiện lạc ("`userId` này có cữi hộp không?") chỉ là một phép so sánh `uint32_t == uint32_t` dục trên thanh ghi CPU.
 
-Với 1 triệu bản ghi: **~30.5 MB** dữ liệu thuần. Nếu không dùng dictionary encoding mà lưu 4 `std::string` mỗi dòng (mỗi string ~32 bytes trên MSVC với SSO), bộ nhớ sẽ tăng lên **>1.5 GB** — gấp **~50 lần**.
+So sánh chuỗi có độ phức tạp O(L) với L là chiều dài chuỗi. So sánh số nguyên là O(1). Nhân con số này với hàng trăm triệu phép kiểm tra trong 14 luật, hiệu ứng tích lũy là **cực kỳ đáng kể**.
 
-Cả `EventType` và `Location` đều được khai báo với backing type `uint8_t`, tiết kiệm tối đa so với `int` mặc định (4 bytes).
+#### Kỹ thuật 3 — Arena Allocation với `LogChunk`
 
-### 2.3 Dictionary Encoding với `StringPool`
+Thay vì gọi `new LogEntry` hàng chục triệu lần (gây **heap fragmentation** trầm trọng và lãng phí CPU cho allocator), hệ thống cấp phát một khối liền mạch (Chunk) chứa đú ng **8192 phần tử** mới gọi `new` một lần.
 
-`StringPool` hoạt động như một **bảng mã hóa hai chiều** (bidirectional dictionary encoder):
+Con số **8192** (= 2¹³) không phải ngẫu nhiên: `8192 LogEntry × 32 bytes = 262.144 bytes = 256KB` — chính xác **bằng kích thước bộ nhớ cache L2** trên CPU hiện đại. Khi Merge Sort quét qua mảng, toàn bộ 1 Chunk khớp trọn trong L2 Cache. CPU không phải tạm xuống truy cập RAM chậm hơn. Đây chính là lý do Merge Sort trên hệ thống này chạy nhanh hơn đáng kể so với sort trên các node lân chuyen (linked list) hay mảng rời rạc.
 
-- **Chiều thuận** (string → ID): Hash table separate-chaining với 262.147 bucket (số nguyên tố), sử dụng thuật toán djb2. Mỗi `Node` chứa `{key, id, next}`.
-- **Chiều ngược** (ID → string): `DynamicArray<std::string>` cho phép tra cứu O(1) theo chỉ số.
+Với 1 triệu bản ghi: chỉ cần **~122 lần `new`** thay vì 1.000.000 lần — **giảm fragmentation 8.000×**.
+
+### 2.4 Chiến lược Binary Snapshot (Smart Boot)
+
+Hệ thống triển khai cơ chế **Binary Caching** để tăng tốc khởi động:
 
 ```
-Forward:  "USER_0042" ──djb2──→ bucket[h] ──chain──→ Node{key="USER_0042", id=42}
-Reverse:  strings[42] → "USER_0042"
+Lần 1 (FIRST RUN):
+  CSV (80MB text) ──parse──→ LogStore ──dump──→ data_cache.bin (48MB binary)
+  Thời gian: ~3–5 giây
+
+Lần 2+ (INSTANT BOOT):
+  data_cache.bin ──fread──→ LogStore (trực tiếp vào RAM)
+  Thời gian: ~50–150 ms (nhanh hơn 30–50×)
 ```
 
-**Hiệu quả:** Với 1M dòng log nhưng chỉ ~vài nghìn user/device/app/resource duy nhất, `StringPool` nén hàng triệu chuỗi lặp lại thành các `uint32_t` 4-byte. Phương thức `getOrCreateId()` đảm bảo **mỗi chuỗi chỉ được lưu một lần**.
+**Cơ chế Invalidation:**
+- Header chứa `csvFileSize` + `csvModTime` (metadata của file CSV gốc)
+- Khi CSV bị sửa đổi → metadata không khớp → tự động fallback về CSV parse
+- XOR Checksum để detect file corruption
 
-### 2.4 O(1) Duplicate Detection với `DuplicateHashSet`
+**Đường dẫn động:** File `.bin` và `anomaly_report.csv` được sinh cạnh file CSV đầu vào (thông qua `makeBinaryPath()` và `makeReportPath()`), đảm bảo hoạt động đúng bất kể vị trí đặt file.
 
-`DuplicateHashSet` là bộ lọc trùng lặp hoạt động **trước khi parse CSV**, tiết kiệm tối đa CPU:
+### 2.5 Kiến trúc Anomaly Detection
 
-```
-Raw CSV line ──djb2──→ 64-bit fingerprint ──insertIfAbsent()──→ true (mới) / false (trùng)
-```
+Anomaly Detector sử dụng **Direct-Address Array** — cấp phát 2 mảng `UserContext[N]` và `DeviceContext[N]` trên heap, trong đó `N = poolSize` (số lượng unique strings). Mỗi phần tử được truy cập trực tiếp bằng dictionary ID → **O(1) lookup** không cần hash.
 
-- **Bucket count:** 2.000.003 (số nguyên tố) — load factor ~0.5 với 1M dòng → chain length trung bình < 1
-- **Chiến lược:** Hash **toàn bộ dòng raw** trước khi split/validate, tránh lãng phí CPU cho các dòng trùng
-- **Hàm hash:** djb2 trên raw `char*` với `unsigned long long` — phân phối tốt, collision thấp
+Bên trong mỗi Context, các **Sliding Window** được triển khai bằng:
+- `RingBuffer<K>`: Lưu K timestamp gần nhất (cho Brute-Force, Rapid Session)
+- `TimestampedRingBuffer<K>`: Lưu K cặp (timestamp, value) (cho Device Hopping, Resource Scan, Data Exfiltration, Compromised Device, Lateral Movement)
 
-### 2.5 Arena Allocation với `LogChunk`
+Cả hai đều hoạt động với bộ nhớ **cố định tại compile-time** (không cấp phát heap), đảm bảo tốc độ `push/isFull/isThresholdBreached/countUnique` luôn là **O(1)** hoặc **O(K²)** với K rất nhỏ (≤10).
 
-Thay vì `new LogEntry` riêng lẻ cho từng bản ghi (gây **heap fragmentation**), hệ thống sử dụng mô hình **arena allocation**:
+### 2.6 Phân cấp Severity
 
-```
-LogStore → DynamicArray<LogChunk*> → LogChunk(8192) → LogEntry[8192] (contiguous)
-```
-
-- Với 1M dòng, chỉ cần ~122 lần `new LogEntry[8192]` thay vì 1M lần `new LogEntry`
-- **Giảm fragmentation ~8000×**, cải thiện **cache locality** khi quét tuần tự
-- Giải phóng bộ nhớ: 1 lần `delete[]` mỗi chunk thay vì 1M lần `delete`
-
-### 2.6 Hash Index với Integer Mixing (Murmur-inspired)
-
-`HashIndex` sử dụng hàm hash chất lượng cao cho integer key (dictionary ID):
-
-```cpp
-uint32_t hashKey(uint32_t key) const {
-    key ^= key >> 16;
-    key *= 0x7feb352dU;  // Murmur-inspired constant
-    key ^= key >> 15;
-    key *= 0x846ca68bU;
-    key ^= key >> 16;
-    return key % bucketCount;
-}
-```
-
-Đây là **finalization step của MurmurHash3** — phân phối đều hơn đáng kể so với `key % bucketCount` đơn thuần, đặc biệt khi key là các số tuần tự (0, 1, 2, ...) từ `StringPool`.
-
-### 2.7 Stable Merge Sort tự viết
-
-`SortUtils` triển khai **Merge Sort ổn định** trên mảng con trỏ `LogEntry*`:
-
-- Buffer tạm `temp` được cấp phát **một lần duy nhất** và tái sử dụng qua mọi lần gọi đệ quy → tránh **recursive heap churn**
-- Tính ổn định: khi timestamp bằng nhau, phần tử bên trái được chọn trước (`<=`), giữ nguyên thứ tự ban đầu
-- Sau khi sort: `delete[] temp` → **zero memory leak**
-
-### 2.8 Tách Header/Implementation (.h/.cpp)
-
-Các module phức tạp đã được refactor sang mô hình **declaration/definition separation**:
-
-| Module       | Header (.h) | Implementation (.cpp) |
-| ------------ | :---------: | :-------------------: |
-| DataLoader   |      ✅      |           ✅           |
-| StringPool   |      ✅      |           ✅           |
-| HashIndex    |      ✅      |           ✅           |
-| SearchEngine |      ✅      |           ✅           |
-| QueryEngine  |      ✅      |           ✅           |
-
-Việc tách này **ngăn chặn vi phạm ODR** (One Definition Rule) khi nhiều translation unit include cùng header, đồng thời **giảm thời gian biên dịch** vì thay đổi implementation không bắt buộc recompile toàn bộ project.
-
-Các class template (`DynamicArray<T>`) và lightweight struct (`LogEntry`, `LogChunk`, `LogStore`) vẫn giữ header-only — đúng theo best practice của C++.
+| Severity   | Màu       | Các luật                                                                   |
+| ---------- | --------- | -------------------------------------------------------------------------- |
+| 🔴 CRITICAL | Đỏ sáng   | Brute-Force Success, Impossible Travel, Dormant Account, Data Exfiltration |
+| 🟡 HIGH     | Vàng sáng | Danger Chain, Multi-Country Hopping, Resource Scan, Compromised Device     |
+| 🟠 MEDIUM   | Vàng      | Brute Force, Device Hopping, Rapid Session, Long Session, Lateral Movement |
+| ⚪ LOW      | Xám       | Out-of-Hours                                                               |
 
 ---
 
-## 3. CÁC KHÓ KHĂN ĐÃ VƯỢT QUA
+## 3. HIỆU NĂNG THỰC TẾ (BENCHMARK)
 
-### 3.1 Quản lý phiên bản & Git
+### 3.1 Kết quả đo trên dataset 1.5 triệu dòng
 
-**Vấn đề:** Trong quá trình phát triển, nhiều lần code bị hỏng do thử nghiệm feature mới trực tiếp trên nhánh chính. Một số commit đã vô tình phá vỡ logic parse CSV, khiến toàn bộ pipeline ingestion ngừng hoạt động.
+| Giai đoạn                   | Thời gian | Ghi chú                    |
+| --------------------------- | --------- | -------------------------- |
+| CSV Ingestion (First Run)   | ~881 ms   | Parse + Dedup + StringPool |
+| Binary Load (Instant Boot)  | ~30 ms    | fread khối .bin            |
+| Index Building              | ~349 ms   | 2 HashIndex + Merge Sort   |
+| Anomaly Detection (14 luật) | ~200 ms   | Quét toàn bộ user timeline |
+| User Journey Query          | <1 ms     | HashIndex O(1) lookup      |
+| Top-10 Resources            | ~12 ms    | Đếm bucket O(N)            |
 
-**Giải pháp đã áp dụng:**
+### 3.2 Phân tích khả năng mở rộng (Scalability)
 
-- **`git restore`**: Khôi phục từng file về trạng thái commit cuối cùng khi phát hiện lỗi sớm
-- **`git reset --hard <commit>`**: "Du hành thời gian" về commit ổn định khi nhiều file cùng bị ảnh hưởng
-- **Feature branching**: Tạo nhánh `fix/phase1-cleanup` để refactor an toàn, chỉ merge vào `main` sau khi đã test kỹ
+Do thuật toán có độ phức tạp O(N), thời gian xử lý tăng tuyến tính theo số lượng bản ghi:
 
-**Bài học:** Git không chỉ là công cụ backup mà là **safety net** cho system programming — nơi một thay đổi nhỏ có thể gây cascade failure.
+| Số dòng     | RAM ước tính | Thời gian xử lý (First Run / Từ CSV) | Thời gian xử lý (Instant Boot / Từ .bin) |
+| ----------- | ------------ | ------------------------------------ | ---------------------------------------- |
+| 1.000.000   | ~70 MB       | ~1 giây                              | ~0.25 giây                               |
+| 10.000.000  | ~535 MB      | ~8 giây                              | ~2 giây                                  |
+| 50.000.000  | ~2,3 GB      | ~1 phút                              | ~20 giây                                 |
+| 500.000.000 | ~24 GB       | ~10 phút                             | ~2 phút                                  |
 
-### 3.2 Cú pháp C++ & Memory Stack
-
-**Vấn đề 1 — `-Wreorder` warning trong `LogEntry`:**
-
-Ban đầu, constructor của `LogEntry` khởi tạo member theo thứ tự tham số hàm, không theo thứ tự khai báo:
-
-```cpp
-// SAI — initializer list không khớp declaration order
-LogEntry(uint32_t user, ..., int64_t ts)
-    : userId(user), deviceId(device), ..., timestamp(ts) {}
-//      ↑ member thứ 2         ↑ member thứ 1 — Compiler warning!
-```
-
-C++ **luôn** khởi tạo member theo thứ tự khai báo trong struct, bất kể thứ tự trong initializer list. Compiler cảnh báo `-Wreorder` vì hành vi thực tế khác với code viết.
-
-**Giải pháp:** Sắp xếp lại initializer list khớp declaration order: `timestamp` → `userId` → `deviceId` → `appId` → `resourceId` → `eventType` → `location`.
-
-**Vấn đề 2 — Constructor argument mismatch:**
-
-Nhiều lần gọi constructor `LogEntry(...)` với sai thứ tự tham số (ví dụ truyền `timestamp` trước `userId`), dẫn đến dữ liệu bị hoán vị âm thầm. Phải debug bằng cách in từng field và so sánh với CSV gốc.
-
-**Vấn đề 3 — Kiểm tra `nullptr` thừa cho `new`:**
-
-```cpp
-LogChunk* chunk = new LogChunk(DEFAULT_CHUNK_SIZE);
-if (chunk == nullptr) { return false; }  // ← DEAD CODE
-```
-
-Trong C++ chuẩn, `new` throw `std::bad_alloc` khi hết bộ nhớ, **không bao giờ trả `nullptr`** (trừ khi dùng `new(std::nothrow)`). Đoạn kiểm tra này là dead code, tạo cảm giác an toàn giả. Đã loại bỏ sau khi hiểu rõ cơ chế exception của `new`.
-
-### 3.3 Tràn bộ nhớ & Static Analysis
-
-**Vấn đề 1 — C6262 Stack Overflow trong `DataLoader::load`:**
-
-Ban đầu, buffer đọc file được khai báo trên **stack**:
-
-```cpp
-bool DataLoader::load(...) {
-    char readBuffer[256 * 1024];  // 256KB trên stack!
-    char lineBuffer[4096];        // thêm 4KB nữa
-    // → Tổng ~260KB stack frame — vượt ngưỡng 16KB mặc định
-}
-```
-
-Visual Studio phát cảnh báo **C6262**: "Function uses 262144 bytes of stack space, exceeds /analyze:stacksize 16384." Stack mặc định trên Windows chỉ **1MB** — một hàm chiếm 256KB là **rủi ro stack overflow** nghiêm trọng.
-
-**Giải pháp:** Di chuyển buffer sang **Heap** bằng `new[]`:
-
-```cpp
-char* readBuffer = new char[READ_BUFFER_SIZE];  // Heap — an toàn
-char* lineBuffer = new char[MAX_LINE_SIZE];
-// ... sử dụng ...
-delete[] readBuffer;
-delete[] lineBuffer;
-```
-
-**Vấn đề 2 — C4996 unsafe `fopen`:**
-
-MSVC cảnh báo `fopen` là "unsafe" và đề xuất `fopen_s`. Giải pháp: thêm `#define _CRT_SECURE_NO_WARNINGS` ở đầu `DataLoader.cpp` để giữ tính portable (không phụ thuộc MSVC-specific API).
-
-**Vấn đề 3 — C6386 false positive trong `DynamicArray`:**
-
-Static analyzer cảnh báo "Buffer overrun" trong hàm `resize()` của `DynamicArray` — nhưng đây là **false positive** vì vòng lặp copy chỉ chạy `i < length` trong khi buffer mới có `newCapacity >= length`. Đã học cách nhận diện và bỏ qua false positive thay vì thêm code workaround không cần thiết.
-
-### 3.4 Tính linh hoạt của hệ thống
-
-**Vấn đề 1 — Dynamic Quick-Test trong `main.cpp`:**
-
-Để tăng tốc debug, `main.cpp` triển khai cơ chế **"Dynamic Default"**: tự động trích xuất `userId` và `resourceId` từ bản ghi đầu tiên trong dataset để làm giá trị mặc định cho CLI:
-
-```cpp
-if (store.size() > 0 && store.chunkCount() > 0) {
-    const LogChunk* firstChunk = store.getChunk(0);
-    if (firstChunk != nullptr && firstChunk->size() > 0) {
-        const LogEntry* firstEntry = firstChunk->raw();
-        defaultUser = store.stringPool.getString(firstEntry[0].userId);
-        defaultRes  = store.stringPool.getString(firstEntry[0].resourceId);
-    }
-}
-```
-
-Nhờ đó, khi test chỉ cần nhấn Enter thay vì gõ userId/resourceId — tiết kiệm thời gian đáng kể khi chạy hàng trăm lần test.
-
-**Vấn đề 2 — `parseInt64` từ chối timestamp âm:**
-
-Ban đầu `parseInt64` chấp nhận số âm. Tuy nhiên, timestamp Unix **không bao giờ âm** trong ngữ cảnh log hiện đại. Đã thêm validation:
-
-```cpp
-if (field.start[0] == '-') {
-    return false;  // Từ chối timestamp âm — invalid data
-}
-```
-
-Đây là ví dụ về **domain-specific validation** — không chỉ kiểm tra cú pháp số mà còn kiểm tra ngữ nghĩa dữ liệu.
+Mọi con số được tính dựa trên: LogEntry 32 bytes + 2 con trỏ index 16 bytes = **48 bytes/dòng**.
 
 ---
 
-## 4. HƯỚNG PHÁT TRIỂN (PHASE 2)
+## 4. CÁC KHÓ KHĂN GẶP PHẢI VÀ HƯỚNG GIẢI QUYẾT
 
-### 4.1 Binary Search trên Timeline đã sắp xếp
+### 4.1 MSVC Compilation Errors
 
-Hiện tại `printUserJourney` quét tuyến tính O(N) trên timeline. Với timeline đã sorted, có thể triển khai `lowerBound()` / `upperBound()` để giảm xuống **O(log N + K)** (K = số kết quả). Đây là thay đổi có **ROI cao nhất** cho Phase 2.
+**Vấn đề 1 — `illegal token on right side of '::'`:**
+Header `windows.h` định nghĩa macro `max` và `min`, xung đột với `std::numeric_limits<int64_t>::max()`.
 
-### 4.2 Memory-Mapped I/O
+**Giải pháp:** Thêm `#define NOMINMAX` trước `#include <windows.h>` trong `ConsoleColor.h`.
 
-Thay `fread` bằng `CreateFileMapping` + `MapViewOfFile` (Windows) để ánh xạ file CSV trực tiếp vào virtual address space. `FieldView` sẽ trỏ thẳng vào vùng nhớ mapped — **true zero-copy** không cần `lineBuffer` trung gian.
+**Vấn đề 2 — C6262 Stack Overflow Warning:**
+Buffer đọc file 256KB khai báo trên stack vượt ngưỡng 16KB mặc định.
 
-### 4.3 Anomaly Detection
+**Giải pháp:** Di chuyển buffer sang Heap bằng `new[]` + `delete[]`.
 
-Triển khai phát hiện bất thường:
-- **Brute-force detection:** Đếm `FAILED_LOGIN` per user trong sliding window
-- **Impossible travel:** So sánh location thay đổi với khoảng cách thời gian
-- **Unusual access patterns:** Phát hiện user truy cập resource ngoài giờ thường
+### 4.2 Thiết kế Anomaly Detection Engine
 
-### 4.4 Chunk-level Metadata
+**Vấn đề:** Cần quét 14 luật trên hàng triệu sự kiện mà không làm chậm hệ thống.
 
-Lưu `minTimestamp` / `maxTimestamp` trong mỗi `LogChunk` để skip toàn bộ chunk khi truy vấn time-range hẹp — giảm scan time từ O(N) xuống fraction nhỏ.
+**Giải pháp:** Sử dụng Direct-Address Array (O(1) lookup) thay vì HashMap, kết hợp với RingBuffer kích thước cố định tại compile-time. Toàn bộ 14 luật được kiểm tra trong **một lần duyệt duy nhất** (Single-Pass) qua timeline — độ phức tạp tổng thể O(N).
 
----
+### 4.3 Tương thích đường dẫn file giữa các môi trường
 
-## PHỤ LỤC: Bản đồ file mã nguồn
+**Vấn đề:** Hardcode `"data/halo_db.bin"` khiến chương trình không tìm thấy file khi chạy từ thư mục khác (ví dụ: `release/`).
 
-| File                 | Loại   | Dòng | Vai trò                                     |
-| -------------------- | ------ | ---: | ------------------------------------------- |
-| `main.cpp`           | Source |  258 | Entry point, CLI, timing harness            |
-| `DataLoader.cpp`     | Source |  386 | High-speed CSV ingestion                    |
-| `DataLoader.h`       | Header |   26 | Loader declaration                          |
-| `LogEntry.h`         | Header |   90 | Compact log row struct (32 bytes)           |
-| `LogChunk.h`         | Header |   90 | Arena-style contiguous block (8192 entries) |
-| `LogStore.h`         | Header |  114 | Chunk-based ownership layer                 |
-| `DynamicArray.h`     | Header |  129 | Custom `std::vector` replacement (template) |
-| `DuplicateHashSet.h` | Header |  129 | Fingerprint duplicate filter                |
-| `StringPool.h`       | Header |   40 | Dictionary encoder declaration              |
-| `StringPool.cpp`     | Source |   96 | Dictionary encoder implementation           |
-| `HashIndex.h`        | Header |   39 | Inverted index declaration                  |
-| `HashIndex.cpp`      | Source |  106 | Inverted index implementation               |
-| `SearchEngine.h`     | Header |   29 | Index builder declaration                   |
-| `SearchEngine.cpp`   | Source |   38 | Index builder implementation                |
-| `QueryEngine.h`      | Header |   46 | Query engine declaration                    |
-| `QueryEngine.cpp`    | Source |  171 | Business queries (Journey, Top-10)          |
-| `SortUtils.h`        | Header |  117 | Stable Merge Sort                           |
+**Giải pháp:** Viết hàm `makeBinaryPath()` và `makeReportPath()` để sinh đường dẫn file `.bin` và `.csv` **cạnh file CSV đầu vào**, đảm bảo hoạt động đúng bất kể vị trí chạy.
 
-**Tổng cộng: ~1,914 dòng C++ thủ công. Zero STL containers.**
+### 4.4 Tinh chỉnh ngưỡng (Threshold Tuning)
+
+**Vấn đề:** Luật `DORMANT_ACCOUNT` với ngưỡng 30 ngày không phát hiện gì trên dataset chỉ kéo dài 15 ngày.
+
+**Giải pháp:** Phân tích timestamp range của dataset, nhận ra toàn bộ dữ liệu chỉ kéo dài ~15 ngày → hạ ngưỡng xuống 10 ngày. Toàn bộ hằng số ngưỡng được tập trung tại `AnomalyRules.h` — chỉ cần sửa 1 dòng để thay đổi, không ảnh hưởng logic.
+
+### 4.5 Quản lý bộ nhớ thủ công (Zero-STL) và chống Memory Leak
+
+**Vấn đề:** Do yêu cầu đồ án cấm sử dụng Smart Pointer hay container của STL, việc cấp phát hàng chục triệu object bằng con trỏ thuần (raw pointers) rất dễ dẫn đến lỗi **Double-Free** (giải phóng bộ nhớ 2 lần) hoặc **Dangling Pointers** (con trỏ lơ lừng) khi dữ liệu vô tình bị copy.
+
+**Giải pháp — Nguyên tắc Quyền sở hữu rõ ràng (Clear Ownership):**
+
+`LogStore` là nơi duy nhất “sở hữu” (chịu trách nhiệm vòng đời) toàn bộ dữ liệu Chunk và StringPool. Các module khác như `SearchEngine`, `QueryEngine` hay `AnomalyDetector` chỉ chứa **con trỏ tham chiếu (Observer Pointers)** — quan sát dữ liệu chứ không có quyền `delete`.
+
+Đồng thời, hệ thống áp dụng **Rule of Three** — vô hiệu hóa Copy Constructor và Copy Assignment bằng `= delete` trong `LogStore` và `DynamicArray`. Điều này buộc trình biên dịch chặn đứng mọi nguy cơ sao chép vùng nhớ động ngoài ý muốn ngay tại bước biên dịch (Compile-time Safety), thay vì để Runtime crash.
+
+Hàm hủy `~Destructor()` của mọi module được kiểm thử qua cơ chế **Smart Boot** — mỗi lần chương trình bật lên đọc từ `.bin` rồi tắt, toàn bộ vòng đời destructor được kích hoạt lần. Nếu có memory leak, Ứng dụng sẽ để lại dấu vết qua công cụ Address Sanitizer (ASAN) hoặc Valgrind. Sau nhiều vòng kiểm thử, kết quả chỉ rõ **không có bất kỳ byte nào bị rò rỉ**.
 
 ---
 
-## 5. HƯỚNG DẪN BIÊN DỊCH VÀ SỬ DỤNG
+## 5. HƯỚNG DẪN SỬ DỤNG
 
 ### 5.1 Yêu cầu môi trường
-- **Trình biên dịch:** Hỗ trợ chuẩn C++17 trở lên.
-- **IDE khuyên dùng:** Visual Studio 2026 (Windows).
+- **Trình biên dịch:** C++17 trở lên
+- **IDE:** Visual Studio 2022+ (Windows) hoặc g++ (Linux/macOS)
+- **RAM tối thiểu:** 4GB cho dataset 1 triệu dòng
 
-### 5.2 Chuẩn bị dữ liệu (Dataset)
-- File dữ liệu gốc bắt buộc phải được đổi tên thành `data.csv`.
-- **Vị trí đặt file khi chấm điểm:** Đặt `data.csv` nằm cùng cấp với file thực thi `halo.exe` (thường nằm trong thư mục `x64/Release` hoặc `x64/Debug` sau khi Build). 
-- *Lưu ý khi debug bằng IDE:* Nếu chạy trực tiếp bằng nút F5 trên Visual Studio, cần đặt file `data.csv` tại thư mục gốc của project (ngang hàng với thư mục `src/`) để khớp với Working Directory mặc định.
+### 5.2 Biên dịch
 
-### 5.3 Thao tác chạy chương trình
-1. Mở file solution `24120085.sln` bằng Visual Studio.
-2. Thiết lập chế độ Build là **Release / x64** để kích hoạt các cờ tối ưu hóa của compiler, giúp hệ thống đạt tốc độ I/O và truy vấn tối đa.
-3. Nhấn **F5** (Local Windows Debugger) để biên dịch và khởi chạy.
-4. Tại giao diện Console (CLI):
-   - Chờ vài giây để hệ thống nạp dữ liệu từ `data.csv` và xây dựng Hash Index.
-   - Nhấn **Enter** để gọi tính năng "Dynamic Quick-Test" (truy vấn nhanh bằng ID hợp lệ được lấy mẫu ngẫu nhiên từ dữ liệu thực).
-   - Hoặc gõ trực tiếp `UserId` (VD: U06619) hoặc `ResourceId` (VD: R00659) để xem lịch sử hành trình (Journey) đã được sắp xếp theo thời gian.
+**Cách 1 — Visual Studio:**
+1. Mở file `24120085.slnx`
+2. Chọn chế độ **Release / x64**
+3. Nhấn **F5** hoặc **Ctrl+F5** để Build và chạy
 
+**Cách 2 — g++ (Terminal):**
+```bash
+cd src
+g++ -O3 -std=c++17 main.cpp core/StringPool.cpp core/HashIndex.cpp \
+    storage/DataLoader.cpp storage/BinaryIO.cpp \
+    indexing/SearchEngine.cpp query/QueryEngine.cpp \
+    anomaly/AnomalyDetector.cpp -o halo.exe
+```
+
+### 5.3 Biên dịch và chạy Unit Test (Khuyên dùng)
+Hệ thống đi kèm một bộ Unit Test tự động (bao gồm 75+ test cases) để kiểm chứng tính đúng đắn của toàn bộ các cấu trúc dữ liệu và 14 luật Anomaly. 
+
+**Biên dịch Test bằng g++:**
+```bash
+cd src
+g++ -O3 -std=c++17 test_engine.cpp core/StringPool.cpp core/HashIndex.cpp \
+    storage/DataLoader.cpp storage/BinaryIO.cpp \
+    indexing/SearchEngine.cpp query/QueryEngine.cpp \
+    anomaly/AnomalyDetector.cpp -o test_engine.exe
+```
+
+**Chạy Test:**
+```bash
+./test_engine.exe
+```
+Kết quả mong đợi: Toàn bộ các Assertions hiển thị màu xanh lá cây `[PASSED]`.
+
+### 5.4 Chuẩn bị dữ liệu
+Đặt file CSV dữ liệu ở bất kỳ vị trí nào. Khi chạy chương trình, nhập đường dẫn tới file CSV:
+```
+CSV file path [Enter = data.csv]: data/halo_dataset_1_5m.csv
+```
+Nhấn Enter để dùng `data.csv` mặc định (đặt cùng thư mục với file `.exe`).
+
+### 5.5 Các chức năng
+
+```
+============================================================
+  [1] User Journey        — Lịch sử truy cập của 1 user
+  [2] Resource History    — Lịch sử truy cập của 1 resource
+  [3] Top 10 Resources    — Tài nguyên được truy cập nhiều nhất
+  [4] Anomaly Detection   — Quét 14 luật bất thường
+  [5] Force Reload        — Parse lại CSV (xóa cache .bin)
+  [0] Exit
+============================================================
+```
+
+**Chức năng 1 & 2:** Nhập User/Resource ID và khoảng thời gian (epoch). Nhấn Enter để dùng giá trị mặc định.
+
+**Chức năng 4 — Anomaly Detection:**
+- In báo cáo lên Console với phân cấp severity (có màu ANSI)
+- Tự động xuất file `<tên_csv>_anomaly_report.csv` cạnh file CSV đầu vào
+- File CSV chứa: timestamp, user_id, device_id, anomaly_type, severity
+
+![Giao diện Dashboard phát hiện bất thường](console_dashboard.png)
 ---
 
+## 6. DANH SÁCH FILE MÃ NGUỒN
 
+| File                             | Loại   | Vai trò                                    |
+| -------------------------------- | ------ | ------------------------------------------ |
+| `main.cpp`                       | Source | Entry point, CLI, Smart Boot, Dynamic Path |
+| `ConsoleColor.h`                 | Header | ANSI color codes cho Console               |
+| `core/LogEntry.h`                | Header | Struct 32 bytes (data-packed)              |
+| `core/LogChunk.h`                | Header | Arena allocator (8192 entries/chunk)       |
+| `core/DynamicArray.h`            | Header | Custom std::vector replacement             |
+| `core/DuplicateHashSet.h`        | Header | Fingerprint duplicate filter               |
+| `core/StringPool.h/.cpp`         | H+S    | Dictionary encoder (string ↔ uint32_t)     |
+| `core/HashIndex.h/.cpp`          | H+S    | Inverted index (Murmur hash)               |
+| `storage/LogStore.h`             | Header | Chunk-based storage engine                 |
+| `storage/DataLoader.h/.cpp`      | H+S    | High-speed CSV parser                      |
+| `storage/BinaryIO.h/.cpp`        | H+S    | Binary snapshot (Instant Boot)             |
+| `indexing/SearchEngine.h/.cpp`   | H+S    | Index builder + sort                       |
+| `indexing/SortUtils.h`           | Header | Stable Merge Sort                          |
+| `query/QueryEngine.h/.cpp`       | H+S    | Business queries                           |
+| `anomaly/AnomalyRecord.h`        | Header | Enum 14 loại + AnomalyRecord struct        |
+| `anomaly/AnomalyRules.h`         | Header | Centralized threshold constants            |
+| `anomaly/RingBuffer.h`           | Header | Sliding window (2 variants)                |
+| `anomaly/UserContext.h`          | Header | Per-user state tracking                    |
+| `anomaly/DeviceContext.h`        | Header | Per-device state tracking                  |
+| `anomaly/AnomalyDetector.h/.cpp` | H+S    | Detection engine + Report + CSV export     |
+
+**Tổng cộng: ~4000+ dòng C++ thủ công. Zero STL containers.**

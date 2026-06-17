@@ -1,3 +1,10 @@
+/**
+ * @file QueryEngine.cpp
+ * @brief Implementation of the QueryEngine class.
+ *
+ * Provides analytical query executions, utilizing manual memory management
+ * and optimized algorithms (like binary search via SortUtils) for performance.
+ */
 #define _CRT_SECURE_NO_WARNINGS
 #include "QueryEngine.h"
 
@@ -11,13 +18,30 @@
 #include "../storage/LogStore.h"
 #include "../ConsoleColor.h"
 
+/**
+ * @brief Default constructor for TopResource.
+ * Initializes resourceId and count to 0.
+ */
 QueryEngine::TopResource::TopResource() : resourceId(0), count(0) {}
 
+/**
+ * @brief Checks if a given timestamp falls within a specified time range.
+ * @param timestamp The timestamp to check.
+ * @param startTime The start of the time range.
+ * @param endTime The end of the time range.
+ * @return True if timestamp is within [startTime, endTime], false otherwise.
+ */
 bool QueryEngine::isWithinRange(int64_t timestamp, int64_t startTime,
                                 int64_t endTime) {
   return timestamp >= startTime && timestamp <= endTime;
 }
 
+/**
+ * @brief Converts an epoch timestamp to a formatted string (UTC).
+ * @param epoch The timestamp in seconds since epoch.
+ * @param buffer The buffer to write the formatted string to.
+ * @param bufferSize The size of the buffer.
+ */
 void QueryEngine::formatTimestamp(int64_t epoch, char *buffer,
                                   uint32_t bufferSize) {
   time_t rawTime = static_cast<time_t>(epoch);
@@ -34,6 +58,12 @@ void QueryEngine::formatTimestamp(int64_t epoch, char *buffer,
                 timeInfo->tm_sec);
 }
 
+/**
+ * @brief Inserts a resource into the top 10 array, shifting others down.
+ * @param topResources Array of the current top 10 resources.
+ * @param resourceId The ID of the resource to consider.
+ * @param count The access count of the resource.
+ */
 void QueryEngine::insertIntoTop10(TopResource topResources[10],
                                   uint32_t resourceId, uint32_t count) {
   if (count == 0) {
@@ -53,6 +83,19 @@ void QueryEngine::insertIntoTop10(TopResource topResources[10],
   }
 }
 
+/**
+ * @brief Prints the chronological access history of a specific user.
+ * 
+ * Uses binary search (SortUtils::lowerBound/upperBound) to quickly find the
+ * target time range within the user's pre-sorted LogEntry array. Includes
+ * an interactive console pager.
+ * 
+ * @param userId The hashed ID of the user.
+ * @param startTime The start of the time window to consider.
+ * @param endTime The end of the time window to consider.
+ * @param engine Reference to the SearchEngine containing the indices.
+ * @param pool Reference to the StringPool to resolve hashed IDs to strings.
+ */
 void QueryEngine::printUserJourney(uint32_t userId, int64_t startTime,
                                    int64_t endTime, const SearchEngine &engine,
                                    const StringPool &pool) {
@@ -97,7 +140,7 @@ void QueryEngine::printUserJourney(uint32_t userId, int64_t startTime,
 
     ++printed;
 
-    // Pager: dừng lại sau mỗi PAGE_SIZE dòng
+    // Pager: pause after every PAGE_SIZE rows
     if (printed % PAGE_SIZE == 0 && i + 1 < hi) {
       std::cout << ConsoleColor::GRAY
                 << "--- Showing " << printed << " / " << totalResults
@@ -115,6 +158,18 @@ void QueryEngine::printUserJourney(uint32_t userId, int64_t startTime,
   }
 }
 
+/**
+ * @brief Prints the chronological access history of a specific resource.
+ *
+ * Similar to printUserJourney, uses binary search for O(log N) time filtering
+ * and provides an interactive pager for viewing large datasets.
+ *
+ * @param resourceId The hashed ID of the resource.
+ * @param startTime The start of the time window to consider.
+ * @param endTime The end of the time window to consider.
+ * @param engine Reference to the SearchEngine containing the indices.
+ * @param pool Reference to the StringPool to resolve hashed IDs to strings.
+ */
 void QueryEngine::printResourceJourney(uint32_t resourceId, int64_t startTime,
                                        int64_t endTime,
                                        const SearchEngine &engine,
@@ -162,7 +217,7 @@ void QueryEngine::printResourceJourney(uint32_t resourceId, int64_t startTime,
 
     ++printed;
 
-    // Pager: dừng lại sau mỗi PAGE_SIZE dòng
+    // Pager: pause after every PAGE_SIZE rows
     if (printed % PAGE_SIZE == 0 && i + 1 < hi) {
       std::cout << ConsoleColor::GRAY
                 << "--- Showing " << printed << " / " << totalResults
@@ -180,6 +235,17 @@ void QueryEngine::printResourceJourney(uint32_t resourceId, int64_t startTime,
   }
 }
 
+/**
+ * @brief Calculates and prints the top 10 most accessed resources within a time frame.
+ *
+ * Employs a custom manual hash map (CountNode) to aggregate counts without STL overhead.
+ * Additionally features Chunk-level skipping (O(1) bounds checking) to dramatically
+ * reduce memory scanning.
+ *
+ * @param startTime The start of the time window to consider.
+ * @param endTime The end of the time window to consider.
+ * @param store Reference to the LogStore containing all log entries.
+ */
 void QueryEngine::printTop10Resources(int64_t startTime, int64_t endTime,
                                       const LogStore &store) {
   if (store.size() == 0) {
@@ -204,8 +270,8 @@ void QueryEngine::printTop10Resources(int64_t startTime, int64_t endTime,
       continue;
     }
 
-    // Bỏ qua toàn bộ Chunk nếu time-range của nó không giao với query window.
-    // Chi phí: 2 phép so sánh int64, tiết kiệm tới 8192 phép kiểm tra entry.
+    // Skip the entire Chunk if its time-range doesn't overlap with query window.
+    // Cost: 2 int64 comparisons, saving up to 8192 entry checks.
     if (chunk->getMaxTimestamp() < startTime ||
         chunk->getMinTimestamp() > endTime) {
       continue;

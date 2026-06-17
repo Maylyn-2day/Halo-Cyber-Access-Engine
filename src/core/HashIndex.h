@@ -8,27 +8,26 @@
 #include "LogEntry.h"
 
 /**
- * @brief Cấu trúc dữ liệu Bảng băm (Hash Table) chuyên biệt, đóng vai trò làm
- * Index Server cho hệ thống.
+ * @brief Specialized Hash Table data structure acting as the Index Server for
+ * the system.
  *
- * @note Thay vì sử dụng `std::unordered_map` có độ trễ lớn do cấp phát từng
- * node nhỏ (overhead), `HashIndex` được tối ưu hóa cho môi trường Zero STL.
- * Bảng băm sử dụng kỹ thuật Separate Chaining (Liên kết rời) với mảng con trỏ
- * thô (raw pointers) và cấp phát thủ công. Khóa (key) là `uint32_t` (Dictionary
- * ID) và giá trị là một `DynamicArray` chứa các con trỏ đến các `LogEntry` gốc
- * (Zero-Copy), đảm bảo thời gian tra cứu trung bình là O(1) và hạn chế phân
- * mảnh bộ nhớ.
+ * @note Instead of using `std::unordered_map` which has high latency due to
+ * small node allocations (overhead), `HashIndex` is optimized for a Zero STL
+ * environment. The hash table uses Separate Chaining with an array of raw
+ * pointers and manual allocation. The key is `uint32_t` (Dictionary ID) and the
+ * value is a `DynamicArray` containing pointers to the original `LogEntry`
+ * objects (Zero-Copy), ensuring an average lookup time of O(1) and minimizing
+ * memory fragmentation.
  */
 class HashIndex {
 private:
   /**
-   * @brief Nút (Node) cơ bản cấu thành danh sách liên kết đơn (Singly Linked
-   * List) trong mỗi Bucket.
+   * @brief Basic Node constituting the Singly Linked List in each Bucket.
    *
-   * @note Việc nhóm tất cả các LogEntry có cùng Khóa vào một `DynamicArray`
-   * giúp tăng cường Spatial Locality (tính địa phương không gian) cho CPU Cache
-   * khi lặp qua dòng thời gian của một đối tượng, hiệu quả hơn đáng kể so với
-   * việc tạo từng Node riêng biệt cho mỗi dòng log.
+   * @note Grouping all LogEntries with the same Key into a `DynamicArray`
+   * enhances Spatial Locality for the CPU Cache when iterating over an object's
+   * timeline. This is significantly more efficient than creating a separate Node
+   * for each log line.
    */
   struct Node {
     uint32_t key;
@@ -36,13 +35,13 @@ private:
     Node *next;
 
     /**
-     * @brief Khởi tạo một Node mới trong chuỗi xung đột (Collision Chain).
+     * @brief Initializes a new Node in the Collision Chain.
      *
-     * @param nodeKey Khóa định danh 32-bit (Dictionary ID của user, device,
-     * v.v.).
+     * @param nodeKey 32-bit identifier key (user's or device's Dictionary ID,
+     * etc.).
      *
-     * @note Từ khóa `explicit` ngăn chặn lỗi logic do trình biên dịch tự động
-     * ép kiểu (implicit conversion).
+     * @note The `explicit` keyword prevents logic errors caused by automatic
+     * compiler type casting (implicit conversion).
      */
     explicit Node(uint32_t nodeKey);
   };
@@ -52,92 +51,89 @@ private:
   uint32_t keyCount;
 
   /**
-   * @brief Hàm băm (Hash Function) nội bộ để phân phối khóa.
+   * @brief Internal Hash Function to distribute keys.
    *
-   * @param key Khóa định danh 32-bit đầu vào.
-   * @return Chỉ số bucket tương ứng (từ 0 đến bucketCount - 1).
+   * @param key Input 32-bit identifier key.
+   * @return Corresponding bucket index (from 0 to bucketCount - 1).
    *
-   * @note Sử dụng thuật toán băm số nguyên nguyên thủy (như MurmurHash3 hoặc
-   * modulo đơn giản) với chi phí tính toán cực thấp O(1).
+   * @note Uses a primitive integer hashing algorithm (like MurmurHash3 or
+   * simple modulo) with extremely low O(1) computational cost.
    */
   uint32_t hashKey(uint32_t key) const;
 
 public:
   /**
-   * @brief Khởi tạo cấu trúc bảng băm với dung lượng xác định trước.
+   * @brief Initializes the hash table structure with a predefined capacity.
    *
-   * @param bucketSize Số lượng bucket ban đầu (Nên là số nguyên tố để giảm
-   * thiểu xung đột).
+   * @param bucketSize Initial number of buckets (Should be a prime number to
+   * minimize collisions).
    *
-   * @note Độ phức tạp O(N) với N là `bucketSize`. Cấp phát mảng con trỏ thô
-   * `new Node*[bucketCount]` và khởi tạo rỗng để tránh rác bộ nhớ. Việc xác
-   * định trước kích thước giúp vô hiệu hóa hoàn toàn quá trình Rehashing cực kỳ
-   * tốn kém trong thời gian chạy.
+   * @note Time complexity O(N) where N is `bucketSize`. Allocates an array of
+   * raw pointers `new Node*[bucketCount]` and initializes it to empty to avoid
+   * memory garbage. Predefining the size completely disables the highly
+   * expensive runtime Rehashing process.
    */
   explicit HashIndex(uint32_t bucketSize);
 
   /**
-   * @brief Hàm hủy (Destructor) dọn dẹp toàn bộ tài nguyên.
+   * @brief Destructor to clean up all resources.
    *
-   * @note Độ phức tạp O(B + N) với B là số bucket và N là số lượng khóa (keys).
-   * @warning Hàm này chỉ phá hủy cấu trúc Index (giải phóng mảng `buckets` và
-   * các `Node`), KHÔNG giải phóng các đối tượng `LogEntry` gốc để tuân thủ
-   * nguyên tắc quyền sở hữu (Ownership).
+   * @note Time complexity O(B + N) where B is the number of buckets and N is
+   * the number of keys.
+   * @warning This function only destroys the Index structure (frees the
+   * `buckets` array and the `Node`s). It DOES NOT free the original `LogEntry`
+   * objects in order to comply with the Ownership principle.
    */
   ~HashIndex();
 
-  // Vô hiệu hóa Copy Constructor và Assignment Operator để tránh lỗi
-  // Double-Free do quản lý con trỏ thô.
+  // Disable Copy Constructor and Assignment Operator to prevent
+  // Double-Free errors due to raw pointer management.
   HashIndex(const HashIndex &other) = delete;
   HashIndex &operator=(const HashIndex &other) = delete;
 
   /**
-   * @brief Thêm một tham chiếu (con trỏ) `LogEntry` vào chỉ mục.
+   * @brief Inserts a `LogEntry` reference (pointer) into the index.
    *
-   * @param key Khóa định danh 32-bit làm tiêu chí phân cụm.
-   * @param entry Con trỏ hằng (const pointer) trỏ đến log gốc được phân bổ
-   * trong Arena/Chunk.
+   * @param key 32-bit identifier key used as the clustering criteria.
+   * @param entry Constant pointer (const pointer) pointing to the original log
+   * allocated in the Arena/Chunk.
    *
-   * @note Độ phức tạp trung bình O(1), trường hợp xấu nhất O(K) với K là số
-   * phần tử xung đột trong bucket. Nếu key đã tồn tại, con trỏ mới sẽ được gắn
-   * thêm (append) vào `DynamicArray` ở chế độ Amortized O(1).
+   * @note Average time complexity O(1), worst case O(K) where K is the number
+   * of colliding elements in the bucket. If the key already exists, the new
+   * pointer will be appended to the `DynamicArray` in Amortized O(1).
    */
   void insert(uint32_t key, const LogEntry *entry);
 
   /**
-   * @brief Truy xuất danh sách toàn bộ các sự kiện ứng với một Khóa.
+   * @brief Retrieves the list of all events corresponding to a Key.
    *
-   * @param key Khóa định danh 32-bit.
-   * @return Con trỏ hằng trỏ đến mảng động chứa danh sách `LogEntry*`, hoặc
-   * `nullptr` nếu không tìm thấy.
+   * @param key 32-bit identifier key.
+   * @return A constant pointer pointing to the dynamic array containing the
+   * list of `LogEntry*`, or `nullptr` if not found.
    *
-   * @note Độ phức tạp trung bình O(1). Chữ ký hàm sử dụng `const` nghiêm ngặt
-   * để đảm bảo tính bất biến (immutability) của Index đối với các luồng truy
-   * vấn.
+   * @note Average time complexity O(1). The function signature strictly uses
+   * `const` to ensure the immutability of the Index against query threads.
    */
   const DynamicArray<const LogEntry *> *get(uint32_t key) const;
 
   /**
-   * @brief Sắp xếp toàn bộ dữ liệu log của tất cả các khóa theo trình tự thời
-   * gian.
+   * @brief Sorts all log data of all keys chronologically.
    *
-   * @note Độ phức tạp hệ thống O(N * K log K) với N là số lượng khóa và K là
-   * kích thước mảng trung bình. Được gọi sau khi hoàn tất giai đoạn tải dữ liệu
-   * hàng loạt (Bulk Loading) nhằm chuẩn bị cho quá trình phân tích chuỗi hành
-   * vi hoặc tìm kiếm nhị phân (Binary Search).
+   * @note System complexity O(N * K log K) where N is the number of keys and K
+   * is the average array size. Called after completing the Bulk Loading phase
+   * to prepare for behavioral sequence analysis or Binary Search.
    */
   void sortAllTimelines();
 
   /**
-   * @brief Trả về tổng số lượng khóa duy nhất (unique keys) đã được lập chỉ
-   * mục.
+   * @brief Returns the total number of unique keys that have been indexed.
    */
   uint32_t size() const;
 
   /**
-   * @brief Xóa toàn bộ dữ liệu Index mà không hủy cấu trúc.
-   * Giải phóng tất cả Node, reset buckets về trạng thái rỗng.
-   * An toàn hơn so với destructor + placement new.
+   * @brief Clears all Index data without destroying the structure.
+   * Frees all Nodes and resets buckets to an empty state.
+   * Safer than using destructor + placement new.
    */
   void reset();
 

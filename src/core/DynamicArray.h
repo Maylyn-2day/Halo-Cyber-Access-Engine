@@ -5,23 +5,21 @@
 #include <cstdint>
 
 /**
- * @brief Cấu trúc mảng động (Dynamic Array) tuỳ chỉnh tối ưu hoá hiệu suất cao
- * cho In-Memory Analytics.
+ * @brief Custom Dynamic Array structure optimized for high performance
+ * in In-Memory Analytics.
  *
- * Mảng động này được thiết kế theo tư tưởng "Zero STL", loại bỏ hoàn toàn các
- * meta-data dư thừa và overhead ngữ nghĩa của std::vector. Bằng cách quản lý
- * trực tiếp một khối bộ nhớ liên tục (contiguous memory block) thông qua con
- * trỏ raw, cấu trúc này tối đa hoá spatial locality, tăng tỷ lệ Cache Hit
- * L1/L2/L3 khi CPU thực hiện quét tuần tự (sequential scan) qua hàng triệu dòng
- * log.
+ * This dynamic array is designed around the "Zero STL" philosophy, completely
+ * eliminating redundant metadata and semantic overhead of std::vector. By directly
+ * managing a contiguous memory block via raw pointers, this structure maximizes
+ * spatial locality, increasing L1/L2/L3 Cache Hit ratios when the CPU performs
+ * sequential scans across millions of log lines.
  *
- * @tparam T Kiểu dữ liệu của các phần tử.
+ * @tparam T Data type of the elements.
  *
- * @warning Quyền sở hữu bộ nhớ (Memory Ownership): Cấu trúc này tự quản lý mảng
- * vùng nhớ heap của chính nó. Tuy nhiên, nếu `T` là một con trỏ (ví dụ:
- * `char*`), người gọi (caller) có trách nhiệm phải thực hiện thao tác duyệt
- * mảng và gọi lệnh giải phóng các đối tượng được trỏ tới trước khi cấu trúc này
- * bị hủy để ngăn chặn hoàn toàn rò rỉ bộ nhớ (Memory Leak).
+ * @warning Memory Ownership: This structure manages its own heap memory.
+ * However, if `T` is a pointer (e.g., `char*`), the caller is responsible for
+ * iterating through the array and calling delete on the pointed objects before
+ * this structure is destroyed to completely prevent Memory Leaks.
  */
 template <typename T> class DynamicArray {
 private:
@@ -30,16 +28,15 @@ private:
   uint32_t capacity;
 
   /**
-   * @brief Tự động tái cấp phát (Reallocation) bộ nhớ khi mảng chạm giới hạn
-   * sức chứa.
+   * @brief Automatically reallocates memory when the array reaches its capacity.
    *
-   * Quyết định thuật toán: Chiến lược cấp phát này có chi phí thời gian là O(N)
-   * do cần phải di chuyển khối lượng lớn dữ liệu sang vùng nhớ mới kề liền
-   * nhau. Việc sao chép trực tiếp bằng toán tử gán thay vì std::move là sự đánh
-   * đổi có chủ đích cho các cấu trúc dữ liệu dạng POD/Trivial, nhằm giữ độ phức
-   * tạp của logic kiểm soát bộ nhớ ở mức độ nguyên thuỷ và nhanh nhất.
+   * Algorithm decision: This allocation strategy has an O(N) time cost
+   * as it requires moving a large volume of data to a new contiguous memory region.
+   * Directly copying using the assignment operator instead of std::move is a
+   * deliberate trade-off for POD/Trivial data structures, aiming to keep the
+   * memory control logic as primitive and fast as possible.
    *
-   * @param newCapacity Sức chứa bộ nhớ mới cần xin cấp phát từ hệ điều hành.
+   * @param newCapacity New memory capacity to be requested from the OS.
    */
   void resize(uint32_t newCapacity) {
     T *newData = new T[newCapacity];
@@ -55,28 +52,26 @@ private:
 
 public:
   /**
-   * @brief Trì hoãn việc cấp phát bộ nhớ (Lazy Initialization) cho đến khi phần
-   * tử đầu tiên được chèn.
+   * @brief Lazy Initialization of memory allocation until the first
+   * element is inserted.
    *
-   * Quyết định kiến trúc: Kỹ thuật này giúp tiết kiệm đáng kể lượng RAM dư thừa
-   * nếu hệ thống phải khởi tạo trước hàng ngàn mảng động rỗng dưới dạng các
-   * bucket trong phân vùng Hash Table. Thời gian khởi tạo cấu trúc đạt chuẩn
-   * O(1) tuyệt đối.
+   * Architecture decision: This technique saves a significant amount of wasted RAM
+   * if the system has to pre-initialize thousands of empty dynamic arrays as
+   * buckets in the Hash Table partition. Initialization time is strictly O(1).
    */
   DynamicArray() : data(nullptr), length(0), capacity(0) {}
 
   /**
-   * @brief Dự phòng sẵn một khối vùng nhớ liên tục (Pre-allocation) để tránh
-   * phân mảnh và thắt nút cổ chai.
+   * @brief Pre-allocates a contiguous memory block to avoid
+   * fragmentation and bottlenecks.
    *
-   * Quyết định kiến trúc: Tác vụ nạp (ingestion) hàng triệu dòng CSV vào RAM
-   * yêu cầu loại bỏ hoàn toàn các lệnh gọi syscall xin cấp phát động (dynamic
-   * allocation) đắt đỏ đứt quãng. Bằng cách thiết lập mức initialCapacity lớn
-   * ngay từ đầu, tốc độ đẩy dữ liệu vào bộ nhớ đạt O(1) tuyến tính thuần tuý,
-   * ngăn ngừa triệt để chi phí O(N) lúc resize.
+   * Architecture decision: Ingesting millions of CSV rows into RAM requires
+   * completely eliminating expensive, intermittent dynamic allocation syscalls.
+   * By setting a large initialCapacity from the beginning, the data ingestion speed
+   * achieves pure linear O(1), completely preventing O(N) resize costs.
    *
-   * @param initialCapacity Kích thước bộ nhớ ban đầu (tính theo số lượng
-   * element `T`) cần giành quyền cấp phát trước.
+   * @param initialCapacity Initial memory size (in terms of `T` elements)
+   * to be pre-allocated.
    */
   explicit DynamicArray(uint32_t initialCapacity)
       : data(nullptr), length(0), capacity(0) {
@@ -84,14 +79,14 @@ public:
   }
 
   /**
-   * @brief Đảm bảo giải phóng sạch sẽ khối heap theo nguyên lý RAII (Resource
-   * Acquisition Is Initialization).
+   * @brief Ensures clean heap cleanup following the RAII (Resource
+   * Acquisition Is Initialization) principle.
    *
-   * Quyết định kiến trúc: Thời gian dọn dẹp bộ nhớ là O(1) đối với các chuỗi
-   * POD data. Lệnh `delete[]` sẽ thực thi ngầm hàm hủy (nếu có) đối với từng
-   * phần tử. Tư duy quản trị bộ nhớ thủ công bằng raw pointer giúp triệt tiêu
-   * đi các overhead truy xuất và đếm tham chiếu (Reference Counting) từ
-   * thread-safety mà các smart pointer (e.g., std::shared_ptr) áp đặt.
+   * Architecture decision: Memory cleanup time is O(1) for POD data sequences.
+   * The `delete[]` command implicitly invokes the destructor (if any) for each
+   * element. Manual memory management mentality using raw pointers eliminates
+   * the access and Reference Counting overhead from thread-safety imposed by
+   * smart pointers (e.g., std::shared_ptr).
    */
   ~DynamicArray() {
     delete[] data;
@@ -101,36 +96,33 @@ public:
   }
 
   /**
-   * @brief Vô hiệu hoá cơ chế Deep Copy tự động để áp đặt chính sách Độc Quyền
-   * Quản Trị (Unique Ownership).
+   * @brief Disables automatic Deep Copy mechanism to enforce a Unique Ownership policy.
    *
-   * Quyết định kiến trúc: Việc sao chép khối mảng khổng lồ vô tình dẫn tới sụt
-   * giảm hiệu năng ở mức nghiêm trọng (O(N) memory & CPU overhead). Quan trọng
-   * hơn, vô hiệu hóa copy logic sẽ giúp cô lập các con trỏ raw, bảo vệ hệ thống
-   * tuyệt đối trước các rủi ro sập luồng (Double-Free Crash) khi có sự cố thao
-   * tác chéo vùng nhớ.
+   * Architecture decision: Copying a massive array block accidentally leads to
+   * severe performance degradation (O(N) memory & CPU overhead). More importantly,
+   * disabling copy logic helps isolate raw pointers, completely protecting the system
+   * against Double-Free Crash risks during cross-memory manipulations.
    *
-   * @param other Đối tượng DynamicArray nguyên bản tham chiếu.
+   * @param other Original referenced DynamicArray object.
    */
   DynamicArray(const DynamicArray &other) = delete;
 
   /**
-   * @brief Vô hiệu hóa toán tử gán (Assignment Operator) nhằm đồng nhất tính
-   * nguyên vẹn quyền sở hữu bộ nhớ của cấu trúc.
+   * @brief Disables Assignment Operator to ensure structural memory ownership integrity.
    *
-   * @param other Đối tượng DynamicArray nguyên bản tham chiếu.
-   * @return Bị cấm (Deleted).
+   * @param other Original referenced DynamicArray object.
+   * @return Deleted.
    */
   DynamicArray &operator=(const DynamicArray &other) = delete;
 
   /**
-   * @brief Khởi tạo di chuyển (Move Constructor). Chuyển giao quyền sở hữu bộ nhớ một cách an toàn.
+   * @brief Move Constructor. Safely transfers memory ownership.
    *
-   * Quyết định kiến trúc: Giúp các bộ phân tích Anomaly có thể trả về một mảng kết quả 
-   * (Return by value) mà không bị sụt giảm hiệu năng. Cấu trúc lấy trộm (steal) con trỏ 
-   * từ R-value và reset đối tượng cũ về trạng thái rỗng.
+   * Architecture decision: Allows Anomaly analyzers to return a result array
+   * (Return by value) without performance drops. The structure steals the pointer
+   * from the R-value and resets the old object to an empty state.
    *
-   * @param other Đối tượng R-value tham chiếu.
+   * @param other Referenced R-value object.
    */
   DynamicArray(DynamicArray &&other) noexcept
       : data(other.data), length(other.length), capacity(other.capacity) {
@@ -140,10 +132,10 @@ public:
   }
 
   /**
-   * @brief Toán tử gán di chuyển (Move Assignment). Giải phóng vùng nhớ cũ và tiếp quản vùng nhớ mới.
+   * @brief Move Assignment operator. Frees old memory and takes over new memory.
    *
-   * @param other Đối tượng R-value tham chiếu.
-   * @return Tham chiếu đến đối tượng hiện tại.
+   * @param other Referenced R-value object.
+   * @return Reference to the current object.
    */
   DynamicArray &operator=(DynamicArray &&other) noexcept {
     if (this != &other) {
@@ -160,17 +152,14 @@ public:
   }
 
   /**
-   * @brief Can thiệp thủ công vào cơ chế cấp phát không gian vùng nhớ (Manual
-   * Capacity Allocation).
+   * @brief Manually intervenes in the memory allocation mechanism (Manual Capacity Allocation).
    *
-   * Thuật toán: Nếu capacity yêu cầu không lớn hơn dung lượng hiện tại, hàm
-   * ngắt ngay lập tức ở O(1). Ngược lại, hệ thống sẽ kích hoạt cơ chế
-   * Reallocation tốn O(N) thời gian sao chép. Thao tác này tối quan trọng đối
-   * với các luồng xử lý hot-path nhằm dọn dẹp nguy cơ phân mảnh không gian bộ
-   * nhớ (Memory Fragmentation).
+   * Algorithm: If requested capacity is not greater than the current capacity,
+   * the function exits immediately in O(1). Otherwise, the system triggers the
+   * Reallocation mechanism which takes O(N) copy time. This operation is crucial
+   * for hot-path processing threads to eliminate Memory Fragmentation risks.
    *
-   * @param requestedCapacity Sức chứa bộ nhớ tối đa yêu cầu được cấp phát
-   * trước.
+   * @param requestedCapacity Maximum memory capacity requested to be pre-allocated.
    */
   void reserve(uint32_t requestedCapacity) {
     if (requestedCapacity <= capacity) {
@@ -189,17 +178,14 @@ public:
   }
 
   /**
-   * @brief Chèn dữ liệu tuần tự vào buffer với chiến lược nội suy cấp số nhân
-   * (Exponential Growth).
+   * @brief Sequentially inserts data into the buffer using an Exponential Growth strategy.
    *
-   * Thuật toán: Thời gian chạy phân bổ trung bình (Amortized Time Complexity)
-   * đạt chuẩn O(1). Trong trường hợp tải dữ liệu chạm đỉnh (length ==
-   * capacity), quá trình di dời dữ liệu nội bộ O(N) với Growth Factor = 2 sẽ tự
-   * động kích hoạt. Mức Capacity sơ khai khởi điểm được ấn định cứng là 8 phần
-   * tử giúp giảm thiểu không gian thừa thải đối với các tập dữ liệu rải rác
-   * siêu nhỏ.
+   * Algorithm: Amortized Time Complexity is O(1). In case of peak data load
+   * (length == capacity), the O(N) internal data relocation with Growth Factor = 2
+   * automatically triggers. The initial Capacity level is hardcoded to 8 elements
+   * to minimize wasted space for extremely small sparse datasets.
    *
-   * @param value Dữ liệu/object cần nối thêm vào đuôi chuỗi vùng nhớ.
+   * @param value Data/object to be appended to the memory block.
    */
   void pushBack(const T &value) {
     if (length == capacity) {
@@ -212,84 +198,74 @@ public:
   }
 
   /**
-   * @brief Giao diện truy xuất ngẫu nhiên (Random Access) tiếp xúc trực tiếp
-   * trần với không gian bộ nhớ.
+   * @brief Random Access interface directly interacting with raw memory space.
    *
-   * Quyết định kiến trúc: Loại bỏ hoàn toàn các lệnh if-else kiểm tra biên an
-   * toàn (bounds-checking) để không làm gãy pipeline thực thi lệnh của CPU
-   * (branch prediction miss). Việc truy cập index được ánh xạ trực tiếp về
-   * phương trình tính offset vùng nhớ O(1) chuẩn ngôn ngữ C: `base_address +
-   * index * sizeof(T)`.
+   * Architecture decision: Completely eliminates safety bounds-checking if-else
+   * statements to avoid breaking the CPU instruction execution pipeline
+   * (branch prediction miss). Index access maps directly to the standard C-language
+   * O(1) memory offset equation: `base_address + index * sizeof(T)`.
    *
-   * @warning Cảnh báo luồng: Caller tự chịu hoàn toàn trách nhiệm đảm bảo biến
-   * `index < length`. Hành vi sẽ là Không xác định (Undefined Behavior) nếu
-   * truy xuất ra ngoài ranh giới vùng nhớ phân bổ (gây Segfault).
+   * @warning Thread Warning: The Caller is fully responsible for ensuring
+   * `index < length`. The behavior is Undefined (Undefined Behavior) if
+   * accessing outside the allocated memory boundary (causes Segfault).
    *
-   * @param index Vị trí offset cần được truy xuất.
-   * @return T& Tham chiếu pointer trực tiếp tới slot dữ liệu thực tế nằm trên
-   * RAM.
+   * @param index Offset position to be accessed.
+   * @return T& Direct pointer reference to the actual data slot on RAM.
    */
   T &operator[](uint32_t index) { return data[index]; }
 
   /**
-   * @brief Giao diện truy xuất ngẫu nhiên Read-Only theo chỉ mục bảo đảm độ trễ
-   * O(1) cực kì tối thiểu.
+   * @brief Read-Only Random Access interface ensuring absolute minimum O(1) latency.
    *
-   * @param index Vị trí offset cần được đọc thông tin.
-   * @return const T& Tham chiếu hằng (const) không cho phép thay đổi dữ liệu
-   * gốc nằm trên RAM.
+   * @param index Offset position to be read.
+   * @return const T& Constant reference (const) preventing modification of original RAM data.
    */
   const T &operator[](uint32_t index) const { return data[index]; }
 
   /**
-   * @brief Query tức thời khối lượng tài nguyên dữ liệu thực sự đang chiếm dụng
-   * trong khối buffer.
+   * @brief Instantaneously queries the actual data resource volume occupying the buffer.
    *
-   * @return uint32_t Chiều dài (Length) hiện tại của tập dữ liệu đang được
-   * index hoá (Độ phức tạp O(1)).
+   * @return uint32_t Current Length of the indexed dataset (O(1) complexity).
    */
   uint32_t size() const { return length; }
 
   /**
-   * @brief Đánh giá quy mô tối đa của khối RAM vật lý (tính theo slot lưu trữ)
-   * đã mượn cấp phát thành công.
+   * @brief Evaluates the maximum scale of successfully borrowed physical RAM block
+   * (in storage slots).
    *
-   * @return uint32_t Mức sức chứa tối đa mà không gây tràn trước khi tái cấp
-   * phát (Độ phức tạp O(1)).
+   * @return uint32_t Maximum capacity without overflow before reallocation (O(1) complexity).
    */
   uint32_t getCapacity() const { return capacity; }
 
   /**
-   * @brief Phơi bày con trỏ gốc (Base Pointer) của luồng heap ra bên ngoài cho
-   * các thao tác C-Library mức thấp.
+   * @brief Exposes the original heap stream Base Pointer for low-level C-Library operations.
    *
-   * Quyết định kiến trúc: Là cửa ngõ (gateway) sống còn đối với các dự án
-   * Low-level & Zero STL. Chức năng này cho phép truyền toàn bộ khối memory
-   * buffer gốc vào thẳng các system API như `write()`, `send()` (Socket I/O)
-   * hay `memcpy()` mà không phải thông qua bất kì layer mã hoá trung gian nào.
+   * Architecture decision: Vital gateway for Low-level & Zero STL projects.
+   * This feature allows passing the entire raw memory buffer straight into system
+   * APIs like `write()`, `send()` (Socket I/O) or `memcpy()` without going through
+   * any intermediary encoding layer.
    *
-   * @return T* Con trỏ Raw nắm điểm bắt đầu vùng nhớ liên tục ở ô index 0.
+   * @return T* Raw pointer holding the start of the contiguous memory at index 0.
    */
   T *raw() { return data; }
 
   /**
-   * @brief Trích xuất con trỏ gốc dưới hình thức chống ghi đè cho mục đích đẩy
-   * dữ liệu read-only thuần túy.
+   * @brief Extracts the original pointer in anti-overwrite form for purely
+   * read-only data streaming purposes.
    *
-   * @return const T* Con trỏ Raw đảm bảo tính toàn vẹn bộ đệm đọc.
+   * @return const T* Raw pointer ensuring read-buffer integrity.
    */
   const T *raw() const { return data; }
 
   /**
-   * @brief Cơ chế tái sử dụng vùng nhớ nhanh chóng triệt tiêu hoàn toàn lệnh
-   * tương tác với Kernel (Memory Reuse).
+   * @brief Rapid memory reuse mechanism completely eliminating Kernel interaction
+   * (Memory Reuse).
    *
-   * Quyết định kiến trúc: Bằng cách chỉ ghi đè con trỏ biến nội `length = 0`
-   * (Thời gian chạy O(1) tuyệt đối), toàn bộ khối mảng hiện hữu sẽ sẵn sàng ghi
-   * nhận cho một phiên Batch Processing mới. Đây là lõi kĩ thuật đằng sau các
-   * mẫu thiết kế Object Pooling và Arena Allocation, giúp cản trở lệnh
-   * `delete[]` và `new[]` liên tục bào mòn đi hiệu suất phân bổ từ hệ điều
-   * hành.
+   * Architecture decision: By simply overwriting the internal `length = 0`
+   * variable (Absolute O(1) runtime), the entire existing array block is ready
+   * to record for a new Batch Processing session. This is the technical core behind
+   * Object Pooling and Arena Allocation design patterns, helping to prevent
+   * continuous `delete[]` and `new[]` commands from eroding OS allocation performance.
    */
   void clear() { length = 0; }
 };

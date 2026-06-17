@@ -58,13 +58,13 @@ void StringPool::rehash(uint32_t newCapacity) {
   slots = new Slot[newCapacity]();
   capacity = newCapacity;
 
-  // Re-insert tất cả slot cũ. keyCount giữ nguyên (không thay đổi).
+  // Re-insert all old slots. keyCount remains unchanged.
   for (uint32_t i = 0; i < oldCapacity; ++i) {
     if (oldSlots[i].occupied) {
       unsigned long long h = oldSlots[i].cachedHash;
       uint32_t idx = static_cast<uint32_t>(h % capacity);
 
-      // Linear probing tìm slot trống trong mảng mới
+      // Linear probing to find empty slot in the new array
       while (slots[idx].occupied) {
         idx = (idx + 1) % capacity;
       }
@@ -83,7 +83,7 @@ void StringPool::rehash(uint32_t newCapacity) {
 // ============================================================================
 
 uint32_t StringPool::getOrCreateId(const std::string &str) {
-  // Rehash nếu load factor > 75%
+  // Rehash if load factor > 75%
   if (keyCount * 4 >= capacity * 3) {
     rehash(capacity * 2 + 1);
   }
@@ -91,7 +91,7 @@ uint32_t StringPool::getOrCreateId(const std::string &str) {
   unsigned long long hash = hashString(str);
   uint32_t index = static_cast<uint32_t>(hash % capacity);
 
-  // Linear probing: tìm match hoặc slot trống
+  // Linear probing: find match or empty slot
   while (slots[index].occupied) {
     if (slots[index].cachedHash == hash && strings[slots[index].id] == str) {
       return slots[index].id; // Cache hit
@@ -99,7 +99,7 @@ uint32_t StringPool::getOrCreateId(const std::string &str) {
     index = (index + 1) % capacity;
   }
 
-  // Cache miss: cấp ID mới
+  // Cache miss: assign new ID
   uint32_t newId = strings.size();
   strings.pushBack(str);
 
@@ -116,7 +116,7 @@ uint32_t StringPool::getOrCreateId(const std::string &str) {
 // ============================================================================
 
 uint32_t StringPool::getOrCreateId(const char *data, uint32_t length) {
-  // Rehash nếu load factor > 75%
+  // Rehash if load factor > 75%
   if (keyCount * 4 >= capacity * 3) {
     rehash(capacity * 2 + 1);
   }
@@ -124,7 +124,7 @@ uint32_t StringPool::getOrCreateId(const char *data, uint32_t length) {
   unsigned long long hash = hashRaw(data, length);
   uint32_t index = static_cast<uint32_t>(hash % capacity);
 
-  // Linear probing: so sánh hash trước (O(1)), rồi memcmp nếu hash match
+  // Linear probing: compare hash first (O(1)), then memcmp if hash matches
   while (slots[index].occupied) {
     if (slots[index].cachedHash == hash) {
       const std::string &stored = strings[slots[index].id];
@@ -136,7 +136,7 @@ uint32_t StringPool::getOrCreateId(const char *data, uint32_t length) {
     index = (index + 1) % capacity;
   }
 
-  // Cache miss: chỉ ở đây mới tạo std::string canonical
+  // Cache miss: only create canonical std::string here
   uint32_t newId = strings.size();
   strings.pushBack(std::string(data, length));
 

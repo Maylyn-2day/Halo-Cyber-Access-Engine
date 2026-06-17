@@ -8,64 +8,64 @@
 #include <cstdint>
 
 /**
- * @brief Quản lý toàn bộ trạng thái của một người dùng.
- * Kích thước đã được căn chỉnh (Memory Padding) để tối ưu với CPU Cache.
+ * @brief Manages the entire state of a user.
+ * Size is aligned (Memory Padding) to optimize for CPU Cache.
  */
 struct UserContext {
   uint32_t userId;
 
-  // --- 1. Nhóm Behavior (Luật 5, Luật 6) ---
+  // --- 1. Behavior Group (Rule 5, Rule 6) ---
   int64_t lastActivityTimestamp;
   int64_t firstActivityTimestamp;
-  Location lastLocation; // Lưu vị trí của event liền trước (Dành cho Luật 5)
+  Location lastLocation; // Stores location of the immediately preceding event (For Rule 5)
   bool hasActivity;
 
-  // Luật 6 (Multi-Country): Lưu cặp (Timestamp, Location)
-  // Sức chứa = 10 để tránh mất dữ liệu nếu user liên tục tạo event ở cùng 1
-  // nước
+  // Rule 6 (Multi-Country): Stores pairs of (Timestamp, Location)
+  // Capacity = 10 to avoid data loss if user continuously creates events in the same
+  // country
   TimestampedRingBuffer<10> countryWindow;
 
-  // --- 2. Nhóm Threshold (Luật 1, Luật 2, Luật 4) ---
-  // Luật 1 (Brute-force): Chỉ quan tâm thời gian, dùng bản RingBuffer nhẹ
+  // --- 2. Threshold Group (Rule 1, Rule 2, Rule 4) ---
+  // Rule 1 (Brute-force): Only cares about time, uses lightweight RingBuffer
   RingBuffer<AnomalyRules::BRUTE_FORCE_THRESHOLD> failedLoginWindow;
 
-  // Luật 2 (Device Hopping): Quan tâm số lượng thiết bị khác nhau, dùng bản
-  // Timestamped
+  // Rule 2 (Device Hopping): Cares about the number of different devices, uses
+  // Timestamped version
   TimestampedRingBuffer<AnomalyRules::DEVICE_HOP_THRESHOLD> deviceHopWindow;
   uint32_t lastDeviceId;
 
-  // Luật 4 (Out-of-hours): Cờ chặn spam hàng triệu log cho người làm ca đêm
+  // Rule 4 (Out-of-hours): Flag to prevent spamming millions of logs for night-shift workers
   bool outOfHoursReported;
 
-  // --- 3. Nhóm Session (Luật 7, Luật 8, Luật 9) ---
+  // --- 3. Session Group (Rule 7, Rule 8, Rule 9) ---
   bool hasActiveSession;
   int64_t sessionStartTimestamp;
   uint32_t
-      dangerousActionCount; // Đếm số lần ADMIN_ACTION hoặc DOWNLOAD trong phiên
+      dangerousActionCount; // Counts ADMIN_ACTION or DOWNLOAD occurrences within the session
 
-  // Luật 9 (Rapid Session): Theo dõi tần suất mở Session mới
+  // Rule 9 (Rapid Session): Tracks frequency of opening new Sessions
   RingBuffer<AnomalyRules::RAPID_SESSION_THRESHOLD> sessionStartWindow;
 
-  // --- 4. Nhóm Advanced (Luật 10, Luật 11) ---
-  // Luật 10 (Brute-force Success)
+  // --- 4. Advanced Group (Rule 10, Rule 11) ---
+  // Rule 10 (Brute-force Success)
   uint32_t consecutiveFailedCount;
 
-  // Luật 11 (Dormant Account)
+  // Rule 11 (Dormant Account)
   bool wasLongDormant;
   uint32_t burstEventCount;
-  int64_t dormantWakeupTimestamp; // Ghi nhận khoảnh khắc tài khoản "sống lại"
+  int64_t dormantWakeupTimestamp; // Records the moment the account "wakes up"
 
-  // --- 5. Nhóm Custom (Đề xuất mới) ---
-  // Luật 12 (Data Exfiltration): Download nhiều resource khác nhau ngoài giờ
+  // --- 5. Custom Group (New proposals) ---
+  // Rule 12 (Data Exfiltration): Download multiple different resources out of hours
   TimestampedRingBuffer<AnomalyRules::EXFILTRATION_THRESHOLD>
       exfiltrationWindow;
-  bool exfiltrationReported; // Cờ chặn báo trùng
+  bool exfiltrationReported; // Flag to prevent duplicate reports
 
-  // Luật 14 (Lateral Movement): Nhảy giữa nhiều App khác nhau
+  // Rule 14 (Lateral Movement): Jumping between multiple different Apps
   TimestampedRingBuffer<AnomalyRules::LATERAL_MOVEMENT_THRESHOLD> appWindow;
   bool lateralMovementReported;
 
-  // --- Constructor Khởi tạo (Zero-initialization) ---
+  // --- Constructor Initialization (Zero-initialization) ---
   UserContext()
       : userId(0), lastActivityTimestamp(0), firstActivityTimestamp(0),
         lastLocation(LOC_INVALID), hasActivity(false),

@@ -5,14 +5,14 @@
 #include <cstdint>
 
 /**
- * @brief Kiểu dữ liệu liệt kê (enum) lưu trữ các loại sự kiện hệ thống.
+ * @brief Enumeration data type (enum) storing system event types.
  *
- * @note Về mặt kiến trúc, `EventType` được kế thừa từ kiểu `uint8_t` (1 byte)
- * nhằm mục đích tối ưu hóa dung lượng bộ nhớ cho hệ thống phân tích log
- * In-Memory. Với khối lượng dữ liệu khổng lồ, việc giảm kích thước từ `int` (4
- * bytes) xuống 1 byte giúp tiết kiệm đáng kể không gian lưu trữ và tăng cường
- * mật độ dữ liệu trên CPU Cache (Cache line packing), từ đó cải thiện hiệu suất
- * truy xuất ở mức O(1).
+ * @note Architecturally, `EventType` inherits from `uint8_t` (1 byte)
+ * to optimize memory capacity for the In-Memory log analysis system.
+ * With massive data volumes, reducing the size from `int` (4 bytes)
+ * down to 1 byte significantly saves storage space and enhances
+ * data density on CPU Cache (Cache line packing), thereby improving
+ * access performance at O(1) level.
  */
 enum EventType : uint8_t {
   EVENT_LOGIN = 0,
@@ -27,12 +27,12 @@ enum EventType : uint8_t {
 };
 
 /**
- * @brief Kiểu dữ liệu liệt kê (enum) đại diện cho vị trí địa lý của sự kiện.
+ * @brief Enumeration data type (enum) representing the geographic location of the event.
  *
- * @note Giống như `EventType`, `Location` cũng được ràng buộc với kích thước
- * `uint8_t`. Quyết định này phục vụ cho kỹ thuật data packing trong `LogEntry`,
- * đảm bảo rằng chi phí lưu trữ cho trường vị trí luôn đạt mức tối thiểu (đúng 1
- * byte) thay vì bị dư thừa do memory alignment của trình biên dịch.
+ * @note Like `EventType`, `Location` is also restricted to `uint8_t` size.
+ * This decision serves the data packing technique in `LogEntry`,
+ * ensuring that the storage cost for the location field remains at a minimum
+ * (exactly 1 byte) instead of being redundant due to compiler memory alignment.
  */
 enum Location : uint8_t {
   LOC_US = 0,
@@ -54,7 +54,7 @@ enum Location : uint8_t {
 };
 
 /**
- * @brief Chuyển đổi enum EventType thành chuỗi hiển thị.
+ * @brief Converts EventType enum to a display string.
  */
 inline const char *eventTypeToString(EventType type) {
   switch (type) {
@@ -80,7 +80,7 @@ inline const char *eventTypeToString(EventType type) {
 }
 
 /**
- * @brief Chuyển đổi enum Location thành chuỗi hiển thị.
+ * @brief Converts Location enum to a display string.
  */
 inline const char *locationToString(Location loc) {
   switch (loc) {
@@ -120,19 +120,19 @@ inline const char *locationToString(Location loc) {
 }
 
 /**
- * @brief Cấu trúc dữ liệu siêu nhẹ (ultra-lightweight) đại diện cho một bản ghi
- * log nguyên thủy.
+ * @brief Ultra-lightweight data structure representing a primitive
+ * log record.
  *
- * @note Để đạt được hiệu năng tối đa và tuân thủ nguyên tắc Zero STL (tránh chi
- * phí cấp phát bộ nhớ động của std::string), toàn bộ các trường chuỗi được mã
- * hóa thông qua Dictionary Encoding ở bên ngoài cấu trúc. `LogEntry` chỉ lưu
- * trữ các mã định danh số học (numeric IDs), các enum nén và dữ liệu thời gian.
+ * @note To achieve maximum performance and comply with the Zero STL principle
+ * (avoiding std::string dynamic memory allocation overhead), all string fields
+ * are encoded via Dictionary Encoding outside the structure. `LogEntry` only
+ * stores numeric identifiers (numeric IDs), compressed enums, and time data.
  *
- * Về mặt căn chỉnh bộ nhớ (Memory Alignment): Kích thước tổng các trường dữ
- * liệu là 26 bytes. Do trường `timestamp` kiểu `int64_t` yêu cầu căn chỉnh
- * 8-byte, trình biên dịch có thể thêm padding bytes, đẩy tổng kích thước struct
- * lên 32 bytes (chuẩn hóa trên hệ thống 64-bit) nhằm tối ưu hóa tốc độ nạp dữ
- * liệu từ RAM lên thanh ghi CPU, đảm bảo thời gian truy cập là O(1).
+ * Regarding Memory Alignment: Total data fields size is 26 bytes.
+ * Since the `int64_t` `timestamp` field requires 8-byte alignment,
+ * the compiler may add padding bytes, pushing the total struct size
+ * to 32 bytes (standardized on 64-bit systems) to optimize the speed of
+ * loading data from RAM to CPU registers, ensuring O(1) access time.
  */
 struct LogEntry {
   int64_t timestamp;
@@ -144,39 +144,38 @@ struct LogEntry {
   Location location;
 
   /**
-   * @brief Khởi tạo một đối tượng `LogEntry` rỗng với các giá trị mặc định.
+   * @brief Initializes an empty `LogEntry` object with default values.
    *
-   * @note Độ phức tạp thời gian: O(1). Việc gán các giá trị thành 0 hoặc
-   * `INVALID` rất quan trọng khi cấp phát bộ nhớ thô thông qua Arena
-   * Allocation, giúp hệ thống không đọc phải các dữ liệu rác (garbage data) còn
-   * sót lại trong vùng nhớ tái sử dụng.
+   * @note Time complexity: O(1). Assigning values to 0 or
+   * `INVALID` is crucial when allocating raw memory via Arena Allocation,
+   * helping the system avoid reading residual garbage data left
+   * in the reused memory region.
    */
   LogEntry()
       : timestamp(0), userId(0), deviceId(0), appId(0), resourceId(0),
         eventType(EVENT_INVALID), location(LOC_INVALID) {}
 
   /**
-   * @brief Khởi tạo một đối tượng `LogEntry` với dữ liệu đầy đủ.
+   * @brief Initializes a `LogEntry` object with full data.
    *
-   * @param user Mã định danh số (Dictionary ID) của người dùng.
-   * @param device Mã định danh số (Dictionary ID) của thiết bị.
-   * @param app Mã định danh số (Dictionary ID) của ứng dụng.
-   * @param resource Mã định danh số (Dictionary ID) của tài nguyên.
-   * @param event Loại sự kiện hệ thống (kích thước nén 1 byte).
-   * @param loc Vị trí địa lý (kích thước nén 1 byte).
-   * @param ts Dấu thời gian (timestamp) của sự kiện.
+   * @param user Numeric identifier (Dictionary ID) of the user.
+   * @param device Numeric identifier (Dictionary ID) of the device.
+   * @param app Numeric identifier (Dictionary ID) of the application.
+   * @param resource Numeric identifier (Dictionary ID) of the resource.
+   * @param event System event type (1 byte compressed size).
+   * @param loc Geographic location (1 byte compressed size).
+   * @param ts Timestamp of the event.
    *
-   * @note Độ phức tạp thời gian: O(1). Hàm tạo này phục vụ giai đoạn phân tích
-   * dữ liệu log (parsing). Việc truyền dữ liệu trực tiếp vào danh sách khởi tạo
-   * (initializer list) hạn chế tối đa các bản sao trung gian, thích hợp cho
-   * việc khởi tạo hàng loạt thông qua Placement New kết hợp với Arena
-   * Allocator.
+   * @note Time complexity: O(1). This constructor serves the log parsing
+   * phase. Passing data directly into the initializer list
+   * minimizes intermediate copies, suitable for
+   * bulk initialization via Placement New combined with Arena Allocator.
    *
-   * @warning Nếu đối tượng này được khởi tạo trên heap thông qua các con trỏ
-   * thô (raw pointers) và toán tử `new[]`, Caller phải tự chịu trách nhiệm quản
-   * lý vòng đời và gọi `delete[]` để giải phóng bộ nhớ. Do thiết kế giới hạn
-   * nghiêm ngặt (Zero STL), cấu trúc này hoàn toàn không triển khai RAII hay
-   * Destructor ảo, mọi sơ suất sẽ trực tiếp dẫn đến rò rỉ bộ nhớ (memory leak).
+   * @warning If this object is instantiated on the heap via raw pointers
+   * and the `new[]` operator, the Caller takes full responsibility for managing
+   * the lifecycle and calling `delete[]` to free memory. Due to strict design
+   * limitations (Zero STL), this structure completely avoids implementing RAII
+   * or virtual Destructor; any oversight will directly lead to a memory leak.
    */
   LogEntry(uint32_t user, uint32_t device, uint32_t app, uint32_t resource,
            EventType event, Location loc, int64_t ts)

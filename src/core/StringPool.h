@@ -8,26 +8,26 @@
 #include "DynamicArray.h"
 
 /**
- * @brief Hệ thống Cấu trúc từ điển hoá (Dictionary Encoding / String Pool) để
- * tối ưu hoá cường độ RAM.
+ * @brief Dictionary Encoding / String Pool structure system to
+ * optimize RAM intensity.
  *
- * Quyết định kiến trúc: Sử dụng Open-Addressing với Linear Probing thay vì
- * Separate Chaining. Mỗi slot lưu trực tiếp (hash, id, occupied) inline trong
- * mảng phẳng, loại bỏ hoàn toàn chi phí `new Node` cho từng chuỗi. Hash được
- * cache lại trong slot để tránh phải tính lại khi rehash hoặc so sánh.
+ * Architecture decision: Uses Open-Addressing with Linear Probing instead of
+ * Separate Chaining. Each slot stores (hash, id, occupied) directly inline in a
+ * flat array, completely eliminating `new Node` cost for each string. Hash is
+ * cached in the slot to avoid recalculating during rehash or comparison.
  *
- * Mảng `strings` (DynamicArray) vẫn giữ nguyên vai trò reverse-lookup O(1).
+ * The `strings` array (DynamicArray) retains its O(1) reverse-lookup role.
  */
 class StringPool {
 private:
   /**
-   * @brief Slot inline trong mảng phẳng Open-Addressing.
-   * Lưu cached hash + dictionary ID. Kích thước: 16 bytes.
+   * @brief Inline slot in the Open-Addressing flat array.
+   * Stores cached hash + dictionary ID. Size: 16 bytes.
    */
   struct Slot {
-    unsigned long long cachedHash; ///< Hash đã tính sẵn (tránh rehash chuỗi).
-    uint32_t id;                   ///< Dictionary ID trỏ vào mảng strings[].
-    bool occupied;                 ///< Cờ đánh dấu slot hợp lệ.
+    unsigned long long cachedHash; ///< Pre-calculated hash (avoid string rehash).
+    uint32_t id;                   ///< Dictionary ID pointing to strings[] array.
+    bool occupied;                 ///< Flag marking valid slot.
     uint8_t _pad[3];               ///< Padding alignment.
 
     Slot() : cachedHash(0), id(0), occupied(false) {
@@ -35,24 +35,24 @@ private:
     }
   };
 
-  Slot *slots;                       ///< Mảng phẳng Open-Addressing.
-  uint32_t capacity;                 ///< Kích thước mảng slots.
-  uint32_t keyCount;                 ///< Số chuỗi unique đã lưu.
-  DynamicArray<std::string> strings; ///< Reverse-lookup array: ID → chuỗi gốc.
+  Slot *slots;                       ///< Open-Addressing flat array.
+  uint32_t capacity;                 ///< slots array size.
+  uint32_t keyCount;                 ///< Number of saved unique strings.
+  DynamicArray<std::string> strings; ///< Reverse-lookup array: ID -> original string.
 
   /**
-   * @brief Hàm băm chuỗi djb2 nội bộ.
+   * @brief Internal djb2 string hash function.
    */
   unsigned long long hashString(const std::string &str) const;
 
   /**
-   * @brief Hàm băm thô (Raw Hash) zero-allocation cho hot-path.
+   * @brief Zero-allocation Raw Hash function for hot-path.
    */
   unsigned long long hashRaw(const char *data, uint32_t length) const;
 
   /**
-   * @brief Rehash khi load factor vượt 75%.
-   * Duyệt mảng cũ, insert các slot occupied vào mảng mới.
+   * @brief Rehash when load factor exceeds 75%.
+   * Iterates through the old array, inserts occupied slots into the new array.
    */
   void rehash(uint32_t newCapacity);
 
@@ -60,24 +60,24 @@ public:
   explicit StringPool(uint32_t bucketSize = 262147);
   ~StringPool();
 
-  // Vô hiệu hóa Copy/Assignment
+  // Disable Copy/Assignment
   StringPool(const StringPool &other) = delete;
   StringPool &operator=(const StringPool &other) = delete;
 
   void reserve(uint32_t capacity);
 
   /**
-   * @brief Dictionary Encoding: tra cứu hoặc đăng ký ID cho chuỗi std::string.
+   * @brief Dictionary Encoding: look up or register ID for a std::string.
    */
   uint32_t getOrCreateId(const std::string &str);
 
   /**
-   * @brief Zero-allocation overload: tra cứu/đăng ký ID từ con trỏ thô.
+   * @brief Zero-allocation overload: look up/register ID from raw pointer.
    */
   uint32_t getOrCreateId(const char *data, uint32_t length);
 
   /**
-   * @brief Reverse Lookup: ID → chuỗi gốc. O(1).
+   * @brief Reverse Lookup: ID -> original string. O(1).
    */
   std::string getString(uint32_t id) const;
 
