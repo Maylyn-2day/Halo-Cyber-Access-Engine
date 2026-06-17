@@ -19,8 +19,13 @@ struct DeviceContext {
   // Dùng để đếm xem có bao nhiêu Resource KHÁC NHAU được truy cập trong 5 phút.
   TimestampedRingBuffer<AnomalyRules::RESOURCE_SCAN_THRESHOLD> resourceWindow;
 
+  // --- Luật 13: Compromised Device ---
+  // Lưu cặp (Timestamp, UserId) để phát hiện nhiều user login trên cùng device
+  TimestampedRingBuffer<AnomalyRules::COMPROMISED_DEVICE_THRESHOLD> userWindow;
+  bool compromisedReported;
+
   // Constructor: Xóa rác bộ nhớ bằng cách khởi tạo mọi thứ về 0
-  DeviceContext() : deviceId(0) {}
+  DeviceContext() : deviceId(0), compromisedReported(false) {}
 };
 
 #endif // DEVICE_CONTEXT_H

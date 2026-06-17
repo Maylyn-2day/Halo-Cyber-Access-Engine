@@ -15,6 +15,9 @@ enum class AnomalyType : uint8_t {
   RAPID_SESSION = 8,
   BRUTE_FORCE_SUCCESS = 9,
   DORMANT_ACCOUNT = 10,
+  DATA_EXFILTRATION = 11,
+  COMPROMISED_DEVICE = 12,
+  LATERAL_MOVEMENT = 13,
 };
 
 /**

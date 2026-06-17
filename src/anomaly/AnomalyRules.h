@@ -35,6 +35,19 @@ constexpr int64_t DORMANT_THRESHOLD_SEC = 30LL * 24 * 3600; // Ngủ đông 30 n
 constexpr uint32_t DORMANT_BURST_THRESHOLD = 20;            // 20 sự kiện
 constexpr int64_t DORMANT_BURST_WINDOW_SEC =
     10 * 60; // trong 10 phút sau khi thức dậy
+
+// --- Nhóm 5: Custom (Đề xuất mới) ---
+// Luật 12: Data Exfiltration — Download nhiều resource khác nhau ngoài giờ
+constexpr uint32_t EXFILTRATION_THRESHOLD = 5;         // 5 resource khác nhau
+constexpr int64_t EXFILTRATION_WINDOW_SEC = 10 * 60;   // trong 10 phút
+
+// Luật 13: Compromised Device — Nhiều user login trên cùng 1 device
+constexpr uint32_t COMPROMISED_DEVICE_THRESHOLD = 3;     // 3 user khác nhau
+constexpr int64_t COMPROMISED_DEVICE_WINDOW_SEC = 5 * 60; // trong 5 phút
+
+// Luật 14: Lateral Movement — Nhảy giữa nhiều App khác nhau
+constexpr uint32_t LATERAL_MOVEMENT_THRESHOLD = 4;        // 4 app khác nhau
+constexpr int64_t LATERAL_MOVEMENT_WINDOW_SEC = 2 * 60;   // trong 2 phút
 } // namespace AnomalyRules
 
 #endif
