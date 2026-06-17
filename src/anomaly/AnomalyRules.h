@@ -31,8 +31,10 @@ constexpr uint32_t RAPID_SESSION_THRESHOLD = 3;       // 3 phiên đăng nhập
 constexpr int64_t RAPID_SESSION_WINDOW_SEC = 10 * 60; // trong 10 phút
 
 // --- Nhóm 4: Advanced (Nâng cao) ---
-constexpr int64_t DORMANT_THRESHOLD_SEC = 30LL * 24 * 3600; // Ngủ đông 30 ngày
-constexpr uint32_t DORMANT_BURST_THRESHOLD = 20;            // 20 sự kiện
+// Ngưỡng thực tế thường là 30 ngày, nhưng do dataset chỉ kéo dài 15 ngày
+// nên ta hạ xuống 7 ngày để có thể bắt được các bất thường trong bộ dữ liệu này.
+constexpr int64_t DORMANT_THRESHOLD_SEC = 7LL * 24 * 3600; // Ngủ đông 7 ngày
+constexpr uint32_t DORMANT_BURST_THRESHOLD = 20;           // 20 sự kiện
 constexpr int64_t DORMANT_BURST_WINDOW_SEC =
     10 * 60; // trong 10 phút sau khi thức dậy
 
