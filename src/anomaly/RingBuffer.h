@@ -5,9 +5,9 @@
 #include <cstdint>
 
 /**
- * @brief RingBuffer chỉ lưu TIMESTAMP. Dùng cho:
- *   - Luật 1 (Brute Force): push timestamp của FAILED_LOGIN
- *   - Luật 9 (Rapid Session): push timestamp của LOGIN
+ * @brief RingBuffer that only stores TIMESTAMPs. Used for:
+ *   - Rule 1 (Brute Force): pushes timestamp of FAILED_LOGIN
+ *   - Rule 9 (Rapid Session): pushes timestamp of LOGIN
  */
 template <uint32_t CAPACITY> class RingBuffer {
 public:
@@ -30,7 +30,7 @@ public:
   bool isThresholdBreached(int64_t currentTs, int64_t windowSec) const {
     if (!isFull())
       return false;
-    // Khi buffer đầy, 'head' trỏ đúng vào phần tử cũ nhất
+    // When the buffer is full, 'head' points exactly to the oldest element
     return (currentTs - data[head]) <= windowSec;
   }
 
@@ -41,13 +41,13 @@ private:
 };
 
 /**
- * @brief RingBuffer lưu CẶP (timestamp, value). Dùng cho:
- *   - Luật 2 (Device Hop):     push(ts, deviceId)
- *   - Luật 3 (Resource Scan):  push(ts, resourceId)
- *   - Luật 6 (Multi-Country):  push(ts, location)
+ * @brief RingBuffer that stores PAIRS of (timestamp, value). Used for:
+ *   - Rule 2 (Device Hop):     push(ts, deviceId)
+ *   - Rule 3 (Resource Scan):  push(ts, resourceId)
+ *   - Rule 6 (Multi-Country):  push(ts, location)
  *
- * isThresholdBreached() so sánh TIMESTAMP (đúng).
- * countUnique() đếm VALUES unique (đúng).
+ * isThresholdBreached() compares TIMESTAMPs.
+ * countUnique() counts unique VALUES.
  */
 template <uint32_t CAPACITY> class TimestampedRingBuffer {
 public:
@@ -71,13 +71,12 @@ public:
   bool isThresholdBreached(int64_t currentTs, int64_t windowSec) const {
     if (!isFull())
       return false;
-    // So sánh thời gian dựa trên mảng timestamps
+    // Compare time based on the timestamps array
     return (currentTs - timestamps[head]) <= windowSec;
   }
 
-  // Thuật toán O(N^2) để đếm số phần tử unique.
-  // Vì CAPACITY của chúng ta rất nhỏ (<= 10), O(N^2) tốn chưa tới vài
-  // nano-giây.
+  // O(N^2) algorithm to count unique elements.
+  // Since our CAPACITY is very small (<= 10), O(N^2) takes less than a few nano-seconds.
   uint32_t countUnique() const {
     uint32_t unique = 0;
     for (uint32_t i = 0; i < count; ++i) {

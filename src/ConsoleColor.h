@@ -1,7 +1,7 @@
 // src/ConsoleColor.h
-// ANSI color codes cho console output.
-// Windows 10+ (build 1511+) hỗ trợ ANSI escape codes.
-// Cần gọi ConsoleColor::init() một lần ở đầu main().
+// ANSI color codes for console output.
+// Windows 10+ (build 1511+) supports ANSI escape codes.
+// Need to call ConsoleColor::init() once at the beginning of main().
 #ifndef CONSOLE_COLOR_H
 #define CONSOLE_COLOR_H
 
@@ -9,8 +9,8 @@
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
-#ifndef NOMINMAX          // Ngăn windows.h định nghĩa macro min/max
-#define NOMINMAX          // vì sẽ xung đột với std::numeric_limits::max()
+#ifndef NOMINMAX          // Prevent windows.h from defining min/max macros
+#define NOMINMAX          // because it will conflict with std::numeric_limits::max()
 #endif
 #include <windows.h>
 #endif
@@ -31,14 +31,14 @@ static const char *WHITE   = "\033[37m";
 static const char *GRAY    = "\033[90m";   // Bright Black = Dark Gray
 
 // Bright variants
-static const char *BRED    = "\033[91m";   // Bright Red (error nổi bật)
+static const char *BRED    = "\033[91m";   // Bright Red (prominent error)
 static const char *BGREEN  = "\033[92m";   // Bright Green
 static const char *BYELLOW = "\033[93m";   // Bright Yellow / Orange-ish
 static const char *BCYAN   = "\033[96m";   // Bright Cyan
 
 // ============================================================================
-// init() — Bật ANSI processing trên Windows.
-// Trên Linux/macOS, ANSI luôn hoạt động, hàm này là no-op.
+// init() - Enable ANSI processing on Windows.
+// On Linux/macOS, ANSI always works, this function is a no-op.
 // ============================================================================
 inline void init() {
 #if defined(_WIN32)

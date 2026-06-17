@@ -1,4 +1,11 @@
-// main.cpp
+/**
+ * @file main.cpp
+ * @brief Entry point for the Halo Cyber Access Engine.
+ *
+ * This file orchestrates the high-performance in-memory log analytics pipeline,
+ * managing the smart boot process (Binary Snapshot vs CSV), coordinating queries,
+ * and presenting the interactive console interface.
+ */
 #define _CRT_SECURE_NO_WARNINGS
 #include <chrono>
 #include <cstdio>
@@ -21,14 +28,17 @@ namespace {
 const std::string DEFAULT_CSV_PATH = "data.csv";
 
 /**
- * @brief Tự sinh đường dẫn file .bin từ đường dẫn CSV.
- * Ví dụ: "data.csv"          → "data_cache.bin"
- *          "C:/foo/log.csv"    → "C:/foo/log_cache.bin"
- * Đảm bảo file .bin luôn nằm cạnh CSV,
- * không phụ thuộc vào thư mục làm việc của exe.
+ * @brief Auto-generates a .bin cache file path from the given CSV path.
+ *
+ * Ensures the binary cache file is consistently stored adjacent to the CSV file,
+ * independently of the executable's current working directory.
+ * Example: "data.csv" -> "data_cache.bin", "C:/foo/log.csv" -> "C:/foo/log_cache.bin"
+ *
+ * @param csvPath The absolute or relative path to the source CSV file.
+ * @return The corresponding binary cache file path.
  */
 std::string makeBinaryPath(const std::string &csvPath) {
-  // Tìm vị trí dấu chấm cuối cùng
+  // Find last dot position
   size_t dotPos = csvPath.rfind('.');
   if (dotPos == std::string::npos) {
     return csvPath + "_cache.bin";
@@ -37,9 +47,12 @@ std::string makeBinaryPath(const std::string &csvPath) {
 }
 
 /**
- * @brief Sinh đường dẫn file anomaly report cạnh CSV.
- * Ví dụ: "data.csv"       → "data_anomaly_report.csv"
- *          "C:/foo/log.csv" → "C:/foo/log_anomaly_report.csv"
+ * @brief Generates the anomaly report CSV file path next to the source CSV.
+ *
+ * Example: "data.csv" -> "data_anomaly_report.csv"
+ *
+ * @param csvPath The absolute or relative path to the source CSV file.
+ * @return The corresponding anomaly report file path.
  */
 std::string makeReportPath(const std::string &csvPath) {
   size_t dotPos = csvPath.rfind('.');
@@ -51,36 +64,47 @@ std::string makeReportPath(const std::string &csvPath) {
 const int64_t DEFAULT_START = 0;
 const int64_t DEFAULT_END = 2000000000;
 
+/**
+ * @brief Utility to print a horizontal divider for console formatting.
+ */
 void printDivider() {
   std::cout << ConsoleColor::CYAN
             << "============================================================"
             << ConsoleColor::RESET << '\n';
 }
 
+/**
+ * @brief Clears invalid inputs from the standard input stream.
+ *
+ * Used to recover from bad cin states when the user enters invalid characters
+ * where an integer was expected.
+ */
 void clearBadInput() {
   std::cin.clear();
   std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
 }
 
 /**
- * @brief Phân tích chuỗi ngày tháng (YYYY-MM-DD hoặc YYYY-MM-DD HH:MM:SS)
- *        thành epoch timestamp (UTC).
- * @return true nếu parse thành công, false nếu định dạng sai.
+ * @brief Parses a date string (YYYY-MM-DD or YYYY-MM-DD HH:MM:SS) into an epoch timestamp (UTC).
+ *
+ * @param input The date string to parse.
+ * @param result Reference to store the resulting epoch timestamp.
+ * @return True if parsing was successful, false if the format was invalid.
  */
 bool parseDateString(const std::string &input, int64_t &result) {
   struct tm timeStruct = {};
   int year = 0, month = 0, day = 0;
   int hour = 0, minute = 0, second = 0;
 
-  // Thử parse YYYY-MM-DD HH:MM:SS trước
+  // Try parsing YYYY-MM-DD HH:MM:SS first
   int matched = std::sscanf(input.c_str(), "%d-%d-%d %d:%d:%d", &year, &month,
                             &day, &hour, &minute, &second);
 
   if (matched < 3) {
-    return false; // Không đủ tối thiểu YYYY-MM-DD
+    return false; // Not enough minimum YYYY-MM-DD
   }
 
-  // Kiểm tra tính hợp lệ cơ bản
+  // Basic validity check
   if (year < 1970 || year > 2100 || month < 1 || month > 12 || day < 1 ||
       day > 31 || hour < 0 || hour > 23 || minute < 0 || minute > 59 ||
       second < 0 || second > 59) {
@@ -95,8 +119,8 @@ bool parseDateString(const std::string &input, int64_t &result) {
   timeStruct.tm_sec = second;
   timeStruct.tm_isdst = 0;
 
-  // mktime xử lý local time, nhưng ta cần UTC.
-  // Dùng _mkgmtime trên MSVC (Windows), timegm trên Linux/Mac.
+  // mktime handles local time, but we need UTC.
+  // Use _mkgmtime on MSVC (Windows), timegm on Linux/Mac.
 #if defined(_WIN32)
   time_t epoch = _mkgmtime(&timeStruct);
 #else
@@ -112,11 +136,18 @@ bool parseDateString(const std::string &input, int64_t &result) {
 }
 
 /**
- * @brief Đọc giá trị thời gian từ người dùng.
- * Chấp nhận 3 định dạng:
- *   1. Enter (trả về giá trị mặc định)
- *   2. Số nguyên (epoch timestamp, VD: 1714236478)
- *   3. Chuỗi ngày tháng (VD: 2024-04-27 hoặc 2024-04-27 10:34:38)
+ * @brief Prompts and reads a timestamp from the user.
+ *
+ * Supports three formats:
+ * 1. Empty (press Enter to accept the default value).
+ * 2. Epoch integer (e.g., 1714236478).
+ * 3. Date string (e.g., 2024-04-27 or 2024-04-27 10:34:38).
+ *
+ * @param prompt The prompt to display to the user.
+ * @param value Reference to store the validated timestamp.
+ * @param defaultValue The value to assign if the user simply presses Enter.
+ * @param defaultDisplay String representation of the default value for the prompt.
+ * @return True on valid input, false otherwise.
  */
 bool readTimestamp(const std::string &prompt, int64_t &value,
                    int64_t defaultValue, const char *defaultDisplay) {
@@ -130,11 +161,11 @@ bool readTimestamp(const std::string &prompt, int64_t &value,
     return true;
   }
 
-  // Thử parse như epoch number trước
+  // Try parsing as epoch number first
   bool isNumber = true;
   for (size_t i = 0; i < input.size(); ++i) {
     if (i == 0 && input[i] == '-')
-      continue; // Cho phép số âm
+      continue; // Allow negative numbers
     if (input[i] < '0' || input[i] > '9') {
       isNumber = false;
       break;
@@ -150,7 +181,7 @@ bool readTimestamp(const std::string &prompt, int64_t &value,
     }
   }
 
-  // Thử parse như chuỗi ngày tháng
+  // Try parsing as date string
   if (parseDateString(input, value)) {
     return true;
   }
@@ -160,6 +191,15 @@ bool readTimestamp(const std::string &prompt, int64_t &value,
   return false;
 }
 
+/**
+ * @brief Interactively reads a time range (start and end timestamps) from the user.
+ *
+ * Automatically handles swapping values if the user inputs a start time that
+ * is chronologically later than the end time.
+ *
+ * @param startTime Reference to store the start timestamp.
+ * @param endTime Reference to store the end timestamp.
+ */
 void readTimeRange(int64_t &startTime, int64_t &endTime) {
   std::cout << "\n  [Time Input Formats Supported]\n"
             << "  1. Epoch timestamp (e.g., 1714236478)\n"
@@ -181,6 +221,9 @@ void readTimeRange(int64_t &startTime, int64_t &endTime) {
   }
 }
 
+/**
+ * @brief Prints the interactive main menu to the console.
+ */
 void printMenu() {
   printDivider();
   std::cout << ConsoleColor::BCYAN << "Halo - Cyber Access Engine"
@@ -201,6 +244,12 @@ void printMenu() {
   std::cout << "Choice: ";
 }
 
+/**
+ * @brief Calculates and prints the elapsed execution time for a query in microseconds.
+ *
+ * @param start The time point recorded before the query.
+ * @param end The time point recorded after the query.
+ */
 void printQueryElapsedTime(
     const std::chrono::high_resolution_clock::time_point &start,
     const std::chrono::high_resolution_clock::time_point &end) {
@@ -213,6 +262,14 @@ void printQueryElapsedTime(
 }
 } // namespace
 
+/**
+ * @brief The main execution loop of the Halo Engine.
+ *
+ * Handles the boot sequence (Binary vs CSV), initializes data structures,
+ * builds indices, and serves the main interactive query loop.
+ *
+ * @return System exit code (0 for success).
+ */
 int main() {
   ConsoleColor::init();
   printDivider();
@@ -236,10 +293,10 @@ int main() {
   bool loaded = false;
   bool fromBinary = false;
 
-  // Binary path được sinh động cạnh file CSV
+  // Binary path generated dynamically next to CSV file
   const std::string BINARY_PATH = makeBinaryPath(filename);
 
-  // --- Chiến lược Smart Boot: Binary trước, CSV fallback ---
+  // --- Smart Boot strategy: Binary first, CSV fallback ---
   if (BinaryIO::isValid(BINARY_PATH.c_str(), filename)) {
     std::cout << ConsoleColor::YELLOW
               << "[*] Found valid binary snapshot: " << BINARY_PATH
@@ -293,7 +350,7 @@ int main() {
     std::cout << ConsoleColor::YELLOW << "CSV ingestion time: " << loadMs
               << " ms" << ConsoleColor::RESET << '\n';
 
-    // Dump binary snapshot cho lần chạy sau
+    // Dump binary snapshot for next run
     if (BinaryIO::dump(BINARY_PATH.c_str(), store, filename)) {
       std::cout << ConsoleColor::GREEN
                 << "[+] Binary snapshot saved for next boot: " << BINARY_PATH

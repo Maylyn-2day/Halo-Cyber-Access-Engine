@@ -21,21 +21,21 @@ enum class AnomalyType : uint8_t {
 };
 
 /**
- * @brief POD struct đại diện cho một anomaly phát hiện được.
- * Tổng kích thước: 24 bytes (Data alignment 8-byte boundaries).
- * Tuyệt đối không chứa con trỏ hoặc bộ nhớ heap.
+ * @brief POD struct representing a detected anomaly.
+ * Total size: 24 bytes (Data alignment 8-byte boundaries).
+ * Strictly contains no pointers or heap memory.
  */
 struct AnomalyRecord {
-  int64_t timestamp; // 8 bytes: Thời điểm phát hiện
-  uint32_t userId;   // 4 bytes: Dictionary ID của User
-  uint32_t deviceId; // 4 bytes: Dictionary ID của Device (nếu có, không thì 0)
-  AnomalyType type;  // 1 byte : Loại cảnh báo
-  uint8_t _pad[3];   // 3 bytes: Padding lấp đầy khoảng trống (tránh rác bộ nhớ)
+  int64_t timestamp; // 8 bytes: Time of detection
+  uint32_t userId;   // 4 bytes: User's Dictionary ID
+  uint32_t deviceId; // 4 bytes: Device's Dictionary ID (if any, otherwise 0)
+  AnomalyType type;  // 1 byte : Alert type
+  uint8_t _pad[3];   // 3 bytes: Padding to fill gaps (prevents memory garbage)
 
-  // Khởi tạo mặc định
+  // Default constructor
   AnomalyRecord()
       : timestamp(0), userId(0), deviceId(0), type(AnomalyType::BRUTE_FORCE) {
-    _pad[0] = _pad[1] = _pad[2] = 0; // Xóa sạch rác
+    _pad[0] = _pad[1] = _pad[2] = 0; // Clear garbage
   }
 };
 

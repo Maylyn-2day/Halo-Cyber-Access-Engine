@@ -9,107 +9,107 @@
 #include "UserContext.h"
 #include <cstdint>
 
-// Khai báo sớm (Forward Declaration) để giảm thời gian biên dịch
-// và tránh circular dependency
+// Forward Declaration to reduce compilation time
+// and avoid circular dependency
 class SearchEngine;
 class StringPool;
 
 /**
- * @brief Lớp điều phối quá trình phát hiện bất thường (Orchestrator).
- * Áp dụng mô hình Batch Processing: duyệt qua tất cả timeline của user/device.
+ * @brief Orchestrator class for the anomaly detection process.
+ * Applies Batch Processing model: iterates through all user/device timelines.
  */
 class AnomalyDetector {
 private:
   // --- State Stores (Direct-Address Tables) ---
-  // Mảng lưu trữ Context. Index của mảng chính là Dictionary ID.
+  // Context storage array. The array index is the Dictionary ID.
   UserContext *userContexts;
   DeviceContext *deviceContexts;
   uint32_t contextCapacity;
 
-  // Nơi lưu trữ tất cả các bất thường phát hiện được
+  // Storage for all detected anomalies
   DynamicArray<AnomalyRecord> results;
 
-  // --- Helper Methods nội bộ ---
+  // --- Internal Helper Methods ---
 
-  // Xử lý 1 dòng log duy nhất, kích hoạt toàn bộ 11 luật
+  // Processes a single log line, triggering all 11 rules
   void processEvent(const LogEntry *entry);
 
-  // [Nhóm 1]: Bất thường dựa trên Threshold (Ngưỡng)
+  // [Group 1]: Threshold-based Anomalies
   void checkBruteForce(UserContext &ctx, const LogEntry *e);
   void checkDeviceHopping(UserContext &ctx, const LogEntry *e);
   void checkResourceScan(DeviceContext &dctx, const LogEntry *e);
   void checkOutOfHours(
       UserContext &ctx,
-      const LogEntry *e); // Đã thêm ctx để check cờ outOfHoursReported
+      const LogEntry *e); // Added ctx to check outOfHoursReported flag
 
-  // [Nhóm 2]: Bất thường dựa trên Behavior (Hành vi)
+  // [Group 2]: Behavior-based Anomalies
   void checkImpossibleTravel(UserContext &ctx, const LogEntry *e);
   void checkMultiCountryHopping(UserContext &ctx, const LogEntry *e);
 
-  // [Nhóm 3]: Bất thường dựa trên Session (Phiên làm việc)
+  // [Group 3]: Session-based Anomalies
   void checkLongSession(UserContext &ctx, const LogEntry *e);
   void checkDangerChain(UserContext &ctx, const LogEntry *e);
   void checkRapidSession(UserContext &ctx, const LogEntry *e);
 
-  // [Nhóm 4]: Advanced (Nâng cao)
+  // [Group 4]: Advanced
   void checkBruteForceSuccess(UserContext &ctx, const LogEntry *e);
   void checkDormantAccount(UserContext &ctx, const LogEntry *e);
 
-  // [Nhóm 5]: Custom (Đề xuất mới)
+  // [Group 5]: Custom (New proposals)
   void checkDataExfiltration(UserContext &ctx, const LogEntry *e);
   void checkCompromisedDevice(DeviceContext &dctx, const LogEntry *e);
   void checkLateralMovement(UserContext &ctx, const LogEntry *e);
 
-  // Trích xuất giờ (0-23) từ Timestamp dạng UTC
+  // Extracts hour (0-23) from UTC Timestamp
   static int32_t extractHourUTC(int64_t timestamp);
 
-  // Chuyển đổi AnomalyType enum → chuỗi C (dùng cho cả console và CSV)
+  // Converts AnomalyType enum to C string (used for both console and CSV)
   static const char *anomalyTypeToString(AnomalyType type);
 
-  // Ghi nhận một bất thường mới vào mảng results
+  // Records a new anomaly to the results array
   void recordAnomaly(AnomalyType type, const LogEntry *e);
 
 public:
   /**
-   * @brief Constructor cấp phát bộ nhớ mảng.
-   * @param poolSize Số lượng chuỗi tối đa trong StringPool (để làm capacity cho
-   * mảng)
+   * @brief Constructor that allocates array memory.
+   * @param poolSize Maximum number of strings in StringPool (used as capacity for
+   * the array)
    */
   explicit AnomalyDetector(uint32_t poolSize);
 
   /**
-   * @brief Destructor giải phóng toàn bộ bộ nhớ Context. Rất quan trọng để
-   * tránh Memory Leak!
+   * @brief Destructor that frees all Context memory. Crucial to prevent
+   * Memory Leaks!
    */
   ~AnomalyDetector();
 
-  // Vô hiệu hóa Copy Constructor và Copy Assignment (Luật Rule of Three)
-  // Đảm bảo không ai có thể copy nhầm bộ nhớ động của class này
+  // Disable Copy Constructor and Copy Assignment (Rule of Three)
+  // Ensures no one can mistakenly copy the dynamic memory of this class
   AnomalyDetector(const AnomalyDetector &) = delete;
   AnomalyDetector &operator=(const AnomalyDetector &) = delete;
 
   /**
-   * @brief Hàm kích hoạt engine chạy toàn bộ các luật kiểm tra.
-   * @param engine SearchEngine đã được build chỉ mục (Index) từ Phase 1.
-   * @param pool StringPool để hỗ trợ báo cáo (nếu cần).
+   * @brief Triggers the engine to run all inspection rules.
+   * @param engine SearchEngine built with Index from Phase 1.
+   * @param pool StringPool to support reporting (if needed).
    */
   void runAll(const SearchEngine &engine, const StringPool &pool);
 
   /**
-   * @brief In báo cáo chi tiết các bất thường ra màn hình Console.
+   * @brief Prints detailed report of anomalies to the Console.
    */
   void printReport(const StringPool &pool) const;
 
   /**
-   * @brief Xuất toàn bộ kết quả chi tiết ra file CSV.
-   * @param filepath Đường dẫn file đầu ra (VD: "anomaly_report.csv").
-   * @param pool StringPool để dịch ngược userId/deviceId thành chuỗi.
-   * @return true nếu ghi file thành công, false nếu lỗi I/O.
+   * @brief Exports all detailed results to a CSV file.
+   * @param filepath Output file path (e.g., "anomaly_report.csv").
+   * @param pool StringPool to decode userId/deviceId back to strings.
+   * @return true if file written successfully, false if I/O error.
    */
   bool exportToCSV(const char *filepath, const StringPool &pool) const;
 
   /**
-   * @brief Trả về mảng kết quả (Dùng cho Unit Test hoặc ghi file CSV).
+   * @brief Returns the results array (Used for Unit Tests or writing CSV files).
    */
   const DynamicArray<AnomalyRecord> &getResults() const { return results; }
 };

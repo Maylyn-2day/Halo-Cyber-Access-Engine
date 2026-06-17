@@ -1,4 +1,11 @@
-// DataLoader.cpp
+/**
+ * @file DataLoader.cpp
+ * @brief Implementation of the high-performance DataLoader engine.
+ *
+ * Utilizes memory-mapped I/O (mmap on POSIX, CreateFileMapping on Windows)
+ * combined with zero-copy string parsing (FieldView) to ingest millions of
+ * log entries directly into the in-memory LogStore bypassing STL overhead.
+ */
 #define _CRT_SECURE_NO_WARNINGS
 #include "DataLoader.h"
 
@@ -24,16 +31,32 @@ namespace {
 const uint32_t READ_BUFFER_SIZE = 256 * 1024;
 const uint32_t MAX_LINE_SIZE = 4096;
 
+/**
+ * @struct FieldView
+ * @brief Lightweight, non-owning string view for zero-copy parsing.
+ */
 struct FieldView {
-  const char *start;
-  uint32_t length;
+  const char *start; ///< Pointer to the start of the field in mapped memory.
+  uint32_t length;   ///< Length of the field in bytes.
 
+  /**
+   * @brief Default constructor. Initializes an empty view.
+   */
   FieldView() : start(nullptr), length(0) {}
 
+  /**
+   * @brief Constructs a FieldView with a given start pointer and length.
+   * @param fieldStart Pointer to the start of the field.
+   * @param fieldLength Length of the field.
+   */
   FieldView(const char *fieldStart, uint32_t fieldLength)
       : start(fieldStart), length(fieldLength) {}
 };
 
+/**
+ * @struct ParsedLine
+ * @brief Temporary structure holding parsed, but not yet pooled, fields of a single log line.
+ */
 struct ParsedLine {
   FieldView userId;
   FieldView deviceId;
@@ -47,6 +70,12 @@ struct ParsedLine {
       : eventType(EVENT_INVALID), location(LOC_INVALID), timestamp(0) {}
 };
 
+/**
+ * @brief Fast string equality check against a C-style string literal.
+ * @param field The FieldView to compare.
+ * @param literal The null-terminated C-string literal.
+ * @return True if the field contents exactly match the literal.
+ */
 bool equalsLiteral(const FieldView &field, const char *literal) {
   uint32_t literalLength = static_cast<uint32_t>(std::strlen(literal));
 
@@ -57,6 +86,11 @@ bool equalsLiteral(const FieldView &field, const char *literal) {
   return std::memcmp(field.start, literal, literalLength) == 0;
 }
 
+/**
+ * @brief Parses an event type string into an EventType enum.
+ * @param field The FieldView representing the event type.
+ * @return The corresponding EventType, or EVENT_INVALID if unknown.
+ */
 EventType parseEventType(const FieldView &field) {
   if (equalsLiteral(field, "LOGIN")) {
     return EVENT_LOGIN;
@@ -93,6 +127,11 @@ EventType parseEventType(const FieldView &field) {
   return EVENT_INVALID;
 }
 
+/**
+ * @brief Parses a location string into a Location enum.
+ * @param field The FieldView representing the location.
+ * @return The corresponding Location, or LOC_INVALID if unknown.
+ */
 Location parseLocation(const FieldView &field) {
   if (equalsLiteral(field, "US")) {
     return LOC_US;
@@ -157,6 +196,12 @@ Location parseLocation(const FieldView &field) {
   return LOC_INVALID;
 }
 
+/**
+ * @brief High-performance integer parsing from a string view.
+ * @param field The FieldView representing the integer.
+ * @param value Reference to store the parsed integer.
+ * @return True on success, false if parsing fails (e.g., non-numeric, overflow).
+ */
 bool parseInt64(const FieldView &field, int64_t &value) {
   if (field.length == 0) {
     return false;
@@ -188,6 +233,12 @@ bool parseInt64(const FieldView &field, int64_t &value) {
   return true;
 }
 
+/**
+ * @brief Computes a DJB2 hash of a raw byte buffer.
+ * @param data Pointer to the buffer.
+ * @param length Length of the buffer.
+ * @return The 64-bit DJB2 hash value.
+ */
 unsigned long long djb2Raw(const char *data, uint32_t length) {
   unsigned long long hash = 5381ULL;
 
@@ -198,16 +249,32 @@ unsigned long long djb2Raw(const char *data, uint32_t length) {
   return hash;
 }
 
+/**
+ * @brief Converts a FieldView to a std::string (primarily for debugging).
+ * @param field The FieldView to convert.
+ * @return A std::string containing a copy of the field's data.
+ */
 std::string fieldToString(const FieldView &field) {
   return std::string(field.start, field.length);
 }
 
+/**
+ * @brief Removes trailing carriage return ('\r') from a field if present.
+ * @param field The FieldView to trim in-place.
+ */
 void trimRightCarriageReturn(FieldView &field) {
   if (field.length > 0 && field.start[field.length - 1] == '\r') {
     --field.length;
   }
 }
 
+/**
+ * @brief Splits a comma-separated CSV line into 7 specific log fields and validates them.
+ * @param line Pointer to the start of the line.
+ * @param length Length of the line.
+ * @param parsed Reference to a ParsedLine struct to store the parsed views.
+ * @return True if the line was successfully split and validated, false otherwise.
+ */
 bool splitAndValidateLine(const char *line, uint32_t length,
                           ParsedLine &parsed) {
   FieldView fields[7];
@@ -253,6 +320,12 @@ bool splitAndValidateLine(const char *line, uint32_t length,
   return parseInt64(fields[6], parsed.timestamp);
 }
 
+/**
+ * @brief Checks if a line is the expected CSV header.
+ * @param line Pointer to the start of the line.
+ * @param length Length of the line.
+ * @return True if it perfectly matches the known header format.
+ */
 bool looksLikeHeader(const char *line, uint32_t length) {
   const char expected[] =
       "user_id,device_id,app_id,resource_id,event_type,location,timestamp";
@@ -269,6 +342,15 @@ bool looksLikeHeader(const char *line, uint32_t length) {
   return false;
 }
 
+/**
+ * @brief Processes a single line: deduplicates, parses, and inserts into the LogStore.
+ * @param line Pointer to the start of the line.
+ * @param length Length of the line.
+ * @param firstLine Flag indicating if this is the first line (header check).
+ * @param store The LogStore to insert the parsed LogEntry into.
+ * @param gatekeeper Deduplication set to filter out identical log lines.
+ * @return True on success (or skipped duplicate/header), false on critical failure.
+ */
 bool processLine(const char *line, uint32_t length, bool &firstLine,
                  LogStore &store, DuplicateHashSet &gatekeeper) {
   if (length == 0) {
@@ -308,11 +390,23 @@ bool processLine(const char *line, uint32_t length, bool &firstLine,
 }
 } // namespace
 
+/**
+ * @brief Loads log data from a CSV file into the provided LogStore.
+ *
+ * Uses memory-mapped I/O for direct kernel-to-user-space reading, 
+ * bypassing std::ifstream overhead. Employs zero-copy parsing to slice 
+ * the file directly in memory.
+ *
+ * @param filename Path to the CSV log file.
+ * @param store Reference to the core LogStore to populate.
+ * @param gatekeeper DuplicateHashSet to reject duplicate entries at parse-time.
+ * @return True if the file was completely and successfully processed.
+ */
 bool DataLoader::load(const std::string &filename, LogStore &store,
                       DuplicateHashSet &gatekeeper) {
 
   // ================================================================
-  // Phase 1: Memory-Map toàn bộ file CSV vào virtual address space
+  // Phase 1: Memory-Map entire CSV file into virtual address space
   // ================================================================
   const char *mappedData = nullptr;
   size_t fileSize = 0;
@@ -338,7 +432,7 @@ bool DataLoader::load(const std::string &filename, LogStore &store,
 
   if (fileSize == 0) {
     CloseHandle(hFile);
-    return true; // File rỗng — hợp lệ nhưng không có dữ liệu
+    return true; // Empty file - valid but no data
   }
 
   HANDLE hMapping =
@@ -390,13 +484,13 @@ bool DataLoader::load(const std::string &filename, LogStore &store,
     return false;
   }
 
-  // Gợi ý kernel đọc tuần tự (tối ưu prefetch)
+  // Suggest kernel to read sequentially (prefetch optimization)
   madvise(const_cast<char *>(mappedData), fileSize, MADV_SEQUENTIAL);
 #endif
 
   // ================================================================
-  // Phase 2: Quét tuyến tính O(N) trên vùng nhớ đã map
-  // FieldView trỏ thẳng vào mapped memory — True Zero-Copy Parsing
+  // Phase 2: O(N) linear scan on mapped memory
+  // FieldView points directly to mapped memory - True Zero-Copy Parsing
   // ================================================================
   bool firstLine = true;
   bool success = true;
@@ -413,7 +507,7 @@ bool DataLoader::load(const std::string &filename, LogStore &store,
     }
   }
 
-  // Xử lý dòng cuối nếu file không kết thúc bằng '\n'
+  // Process last line if file doesn't end with '\n'
   if (success && lineStart < mappedData + fileSize) {
     uint32_t lineLength =
         static_cast<uint32_t>((mappedData + fileSize) - lineStart);
@@ -424,7 +518,7 @@ bool DataLoader::load(const std::string &filename, LogStore &store,
   }
 
   // ================================================================
-  // Phase 3: Giải phóng tài nguyên hệ điều hành
+  // Phase 3: Free OS resources
   // ================================================================
 #if defined(_WIN32)
   UnmapViewOfFile(mappedData);

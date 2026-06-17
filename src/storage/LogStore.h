@@ -10,15 +10,15 @@
 #include "../core/StringPool.h"
 
 /**
- * @brief Hệ thống lưu trữ trung tâm (Storage Engine) quản lý toàn bộ các
- * `LogChunk`.
+ * @brief Central Storage Engine managing all
+ * `LogChunk`s.
  *
- * @note Về mặt kiến trúc, `LogStore` chịu trách nhiệm mở rộng dung lượng theo
- * chiều ngang (scaling) bằng cách cấp phát các `LogChunk` mới khi chunk hiện
- * tại bị đầy. Thiết kế này là dạng Block-based Allocation (cấp phát theo khối),
- * ngăn ngừa rủi ro phải sao chép toàn bộ dữ liệu cũ sang vùng nhớ mới
- * (reallocation overhead) mà các mảng động thông thường (`std::vector`) hay gặp
- * phải.
+ * @note Architecturally, `LogStore` is responsible for scaling out
+ * by allocating new `LogChunk`s when the current chunk
+ * is full. This design is Block-based Allocation,
+ * preventing the risk of copying all old data to a new memory region
+ * (reallocation overhead) that regular dynamic arrays (`std::vector`) often
+ * encounter.
  */
 class LogStore {
 private:
@@ -29,13 +29,13 @@ private:
   uint64_t totalEntries;
 
   /**
-   * @brief Cấp phát một Chunk mới và đưa vào mảng quản lý nội bộ.
+   * @brief Allocates a new Chunk and adds it to the internal management array.
    *
-   * @return `true` nếu cấp phát thành công, `false` nếu tràn bộ nhớ hệ thống.
+   * @return `true` if allocation is successful, `false` if system memory is exhausted.
    *
-   * @note Quá trình chuyển đổi (context switch) giữa các Chunk chỉ tốn chi phí
-   * O(1) Amortized Time, diễn ra mỗi khi hệ thống nạp đủ `DEFAULT_CHUNK_SIZE`
-   * bản ghi.
+   * @note The context switch between Chunks only costs
+   * O(1) Amortized Time, occurring every time the system loads `DEFAULT_CHUNK_SIZE`
+   * records.
    */
   bool allocateChunk() {
     LogChunk *chunk = new LogChunk(DEFAULT_CHUNK_SIZE);
@@ -49,31 +49,31 @@ public:
   StringPool stringPool;
 
   /**
-   * @brief Khởi tạo Storage Engine với thông số mặc định.
+   * @brief Initializes the Storage Engine with default parameters.
    */
   LogStore() : chunks(8), currentChunk(nullptr), totalEntries(0) {}
 
   /**
-   * @brief Khởi tạo Storage Engine với dự toán dung lượng trước.
+   * @brief Initializes the Storage Engine with pre-estimated capacity.
    *
-   * @param estimatedChunks Số lượng chunk ước tính cần thiết.
+   * @param estimatedChunks Estimated number of required chunks.
    *
-   * @note Mảng con trỏ `chunks` sẽ cấp phát đủ bộ nhớ để chứa `estimatedChunks`
-   * con trỏ ban đầu, giúp tối ưu chi phí mở rộng động của cấu trúc dữ liệu mảng
-   * bên trong.
+   * @note The `chunks` pointer array will allocate enough memory to hold `estimatedChunks`
+   * initial pointers, helping optimize the dynamic expansion cost of the inner array
+   * data structure.
    */
   explicit LogStore(uint32_t estimatedChunks)
       : chunks(estimatedChunks), currentChunk(nullptr), totalEntries(0) {}
 
   /**
-   * @brief Hủy hệ thống lưu trữ và giải phóng toàn bộ khối lượng dữ liệu khổng
-   * lồ.
+   * @brief Destroys the storage system and frees the massive amount
+   * of data.
    *
-   * @note `LogStore` đóng vai trò Quản lý Vòng đời (Owner) cho mọi cấu trúc
-   * `LogChunk`. Hàm Destructor này có độ phức tạp O(M) với M là số lượng
-   * Chunks. Bằng cách gọi `delete` trên từng `LogChunk`, hiệu ứng Domino sẽ
-   * kích hoạt Destructor của Chunk, qua đó tự động dọn dẹp hàng triệu
-   * `LogEntry` một cách sạch sẽ.
+   * @note `LogStore` acts as the Lifecycle Manager (Owner) for all
+   * `LogChunk` structures. This Destructor has O(M) complexity where M is the number
+   * of Chunks. By calling `delete` on each `LogChunk`, a Domino effect will
+   * trigger the Chunk's Destructor, thereby automatically cleaning up millions of
+   * `LogEntry`s cleanly.
    */
   ~LogStore() {
     for (uint32_t i = 0; i < chunks.size(); ++i) {
@@ -85,14 +85,14 @@ public:
     totalEntries = 0;
   }
 
-  // Vô hiệu hóa việc sao chép để đảm bảo tính duy nhất và toàn vẹn của
+  // Disable copying to ensure uniqueness and integrity of
   // Ownership.
   LogStore(const LogStore &other) = delete;
   LogStore &operator=(const LogStore &other) = delete;
 
   /**
-   * @brief Xóa toàn bộ dữ liệu, giải phóng chunks, reset StringPool.
-   * An toàn hơn so với destructor + placement new.
+   * @brief Clears all data, frees chunks, resets StringPool.
+   * Safer than destructor + placement new.
    */
   void reset() {
     for (uint32_t i = 0; i < chunks.size(); ++i) {
@@ -102,39 +102,39 @@ public:
     currentChunk = nullptr;
     totalEntries = 0;
 
-    // Reset StringPool: hủy cũ, tạo mới in-place
+    // Reset StringPool: destroy old, create new in-place
     stringPool.~StringPool();
     new (&stringPool) StringPool();
     stringPool.reserve(262147);
   }
 
   /**
-   * @brief Đặt trước bộ nhớ cho cấu trúc chỉ mục mảng Chunk.
+   * @brief Pre-reserves memory for the Chunk array index structure.
    *
-   * @param estimatedChunks Tổng lượng chunk dự kiến.
+   * @param estimatedChunks Expected total amount of chunks.
    *
-   * @note Hành động này không cấp phát ngay lập tức các vùng nhớ cho
-   * `LogEntry`, mà chỉ điều chỉnh sức chứa (capacity) của mảng siêu dữ liệu
-   * (metadata array) `chunks`. Đây là kỹ thuật Pre-allocation tiêu chuẩn để
-   * tránh Resize Overhead.
+   * @note This action does not immediately allocate memory regions for
+   * `LogEntry`s, but only adjusts the capacity of the metadata
+   * array `chunks`. This is a standard Pre-allocation technique to
+   * avoid Resize Overhead.
    */
   void reserveChunks(uint32_t estimatedChunks) {
     chunks.reserve(estimatedChunks);
   }
 
   /**
-   * @brief Nạp một đối tượng log mới vào hệ thống lưu trữ.
+   * @brief Loads a new log object into the storage system.
    *
-   * @param entry Đối tượng `LogEntry` chứa dữ liệu thô.
-   * @return Con trỏ vĩnh viễn (stable pointer) trỏ đến vị trí của log trong
-   * Chunk hiện tại.
+   * @param entry `LogEntry` object containing raw data.
+   * @return Stable pointer to the log's location in
+   * the current Chunk.
    *
-   * @note Độ phức tạp Amortized O(1). Nếu `currentChunk` bị đầy, hệ thống sẽ tự
-   * động gọi `allocateChunk()`. Đặc biệt, vì Engine dùng Block-based
-   * Allocation, các con trỏ được trả về từ hàm này có Độ ổn định tuyệt đối
-   * (Absolute Pointer Stability). Bộ nhớ sẽ không bao giờ bị dịch chuyển
-   * (relocated), do đó các Index (như HashIndex) có thể tham chiếu an toàn bằng
-   * con trỏ thô mà không sợ lỗi Invalidated Pointers.
+   * @note Amortized O(1) complexity. If `currentChunk` is full, the system will
+   * automatically call `allocateChunk()`. Specifically, because the Engine uses Block-based
+   * Allocation, pointers returned from this function have Absolute Pointer Stability.
+   * Memory will never be relocated,
+   * therefore Indexes (like HashIndex) can safely reference via
+   * raw pointers without fearing Invalidated Pointers errors.
    */
   LogEntry *insert(const LogEntry &entry) {
     if (currentChunk == nullptr || !currentChunk->hasSpace()) {
@@ -153,36 +153,35 @@ public:
   }
 
   /**
-   * @brief Trả về tổng số lượng bản ghi log đã được hệ thống lưu trữ.
+   * @brief Returns the total number of log records stored by the system.
    */
   uint64_t size() const { return totalEntries; }
 
   /**
-   * @brief Trả về tổng số lượng Block (Chunk) hiện tại đang được cấp phát trên
-   * Heap.
+   * @brief Returns the total number of Blocks (Chunks) currently allocated on
+   * the Heap.
    */
   uint32_t chunkCount() const { return chunks.size(); }
 
   /**
-   * @brief Truy cập trực tiếp một khối dữ liệu (Chunk) cụ thể thông qua chỉ
-   * mục.
+   * @brief Directly accesses a specific data block (Chunk) via
+   * index.
    *
-   * @note Thiết kế này phục vụ kiến trúc Song song hóa (Multithreading/SIMD).
-   * Các luồng phân tích (Worker Threads) có thể lấy từng Chunk độc lập qua hàm
-   * này để xử lý map-reduce mà không gây tắc nghẽn khóa luồng (Lock
-   * Contention).
+   * @note This design serves Parallelization architecture (Multithreading/SIMD).
+   * Analysis threads (Worker Threads) can get each Chunk independently via this
+   * function for map-reduce processing without causing Lock Contention.
    */
   LogChunk *getChunk(uint32_t index) { return chunks[index]; }
 
   /**
-   * @brief Truy cập Read-only một Chunk thông qua chỉ mục.
+   * @brief Read-only access to a Chunk via index.
    */
   const LogChunk *getChunk(uint32_t index) const { return chunks[index]; }
 
   /**
-   * @brief Cho phép BinaryIO inject chunk đã populate sẵn khi load binary.
-   * @param chunk Con trỏ tới LogChunk đã được fread data.
-   * @param entryCount Số entries thực tế trong chunk.
+   * @brief Allows BinaryIO to inject a pre-populated chunk when loading binary.
+   * @param chunk Pointer to the LogChunk that has been fread'd with data.
+   * @param entryCount Actual number of entries in the chunk.
    */
   void addLoadedChunk(LogChunk *chunk, uint32_t entryCount) {
     chunks.pushBack(chunk);

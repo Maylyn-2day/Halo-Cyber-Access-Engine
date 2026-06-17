@@ -11,7 +11,7 @@
 #include "../core/StringPool.h"
 #include "LogStore.h"
 
-// Platform-specific headers cho file metadata (invalidation check)
+// Platform-specific headers for file metadata (invalidation check)
 #if defined(_WIN32)
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -29,13 +29,13 @@ namespace {
 struct BinaryHeader {
   char magic[4];         // "HALO"
   uint32_t version;      // Schema version = 1
-  uint64_t totalEntries; // Tổng số LogEntry
-  uint32_t chunkCount;   // Số lượng chunks
-  uint32_t stringCount;  // Số lượng unique strings
-  uint64_t checksum;     // XOR checksum toàn bộ entries
-  uint64_t csvFileSize;  // Kích thước file CSV gốc (để detect stale)
-  int64_t csvModTime;    // Thời gian sửa đổi cuối của CSV (để detect stale)
-  uint8_t reserved[16];  // Dự phòng mở rộng tương lai
+  uint64_t totalEntries; // Total number of LogEntries
+  uint32_t chunkCount;   // Number of chunks
+  uint32_t stringCount;  // Number of unique strings
+  uint64_t checksum;     // XOR checksum of all entries
+  uint64_t csvFileSize;  // Original CSV file size (to detect stale)
+  int64_t csvModTime;    // Last modification time of CSV (to detect stale)
+  uint8_t reserved[16];  // Reserved for future expansion
 };
 
 // ============================================================================
@@ -43,8 +43,8 @@ struct BinaryHeader {
 // ============================================================================
 
 /**
- * @brief Tính XOR checksum trên toàn bộ LogEntry data.
- * Nhanh, đơn giản, đủ để detect corruption.
+ * @brief Calculate XOR checksum on all LogEntry data.
+ * Fast, simple, enough to detect corruption.
  */
 uint64_t computeChecksum(const LogStore &store) {
   uint64_t checksum = 0;
@@ -54,7 +54,7 @@ uint64_t computeChecksum(const LogStore &store) {
     const LogEntry *entries = chunk->raw();
 
     for (uint32_t i = 0; i < chunk->size(); ++i) {
-      // XOR từng field số học
+      // XOR each numeric field
       checksum ^= static_cast<uint64_t>(entries[i].timestamp);
       checksum ^= static_cast<uint64_t>(entries[i].userId);
       checksum ^= static_cast<uint64_t>(entries[i].deviceId);
@@ -67,8 +67,8 @@ uint64_t computeChecksum(const LogStore &store) {
 }
 
 /**
- * @brief Lấy file size và modification time (cross-platform).
- * @return true nếu lấy được metadata, false nếu file không tồn tại.
+ * @brief Get file size and modification time (cross-platform).
+ * @return true if metadata retrieved, false if file does not exist.
  */
 bool getFileMetadata(const char *path, uint64_t &fileSize, int64_t &modTime) {
 #if defined(_WIN32)
@@ -101,7 +101,7 @@ bool getFileMetadata(const char *path, uint64_t &fileSize, int64_t &modTime) {
 } // namespace
 
 // ============================================================================
-// dump() — Ghi trạng thái pre-processed ra file nhị phân
+// dump() - Write pre-processed state to binary file
 // ============================================================================
 
 bool BinaryIO::dump(const char *filepath, const LogStore &store,
@@ -112,7 +112,7 @@ bool BinaryIO::dump(const char *filepath, const LogStore &store,
     return false;
   }
 
-  // --- Chuẩn bị Header ---
+  // --- Prepare Header ---
   BinaryHeader header;
   std::memset(&header, 0, sizeof(header));
   header.magic[0] = 'H';
@@ -125,7 +125,7 @@ bool BinaryIO::dump(const char *filepath, const LogStore &store,
   header.stringCount = store.stringPool.size();
   header.checksum = computeChecksum(store);
 
-  // Lưu metadata CSV để detect stale
+  // Save CSV metadata to detect stale
   uint64_t csvSize = 0;
   int64_t csvMod = 0;
   if (getFileMetadata(csvPath.c_str(), csvSize, csvMod)) {
@@ -133,7 +133,7 @@ bool BinaryIO::dump(const char *filepath, const LogStore &store,
     header.csvModTime = csvMod;
   }
 
-  // Ghi header (sẽ được cập nhật lại nếu cần)
+  // Write header (will be updated later if needed)
   if (std::fwrite(&header, sizeof(header), 1, file) != 1) {
     std::cerr << "[BinaryIO] dump: Failed to write header\n";
     std::fclose(file);
@@ -163,7 +163,7 @@ bool BinaryIO::dump(const char *filepath, const LogStore &store,
     std::fwrite(&minTs, sizeof(int64_t), 1, file);
     std::fwrite(&maxTs, sizeof(int64_t), 1, file);
 
-    // Ghi nguyên khối entries[] — POD struct, fwrite an toàn
+    // Write entire entries[] block - POD struct, safe fwrite
     if (entryCount > 0) {
       std::fwrite(chunk->raw(), sizeof(LogEntry), entryCount, file);
     }
@@ -174,7 +174,7 @@ bool BinaryIO::dump(const char *filepath, const LogStore &store,
 }
 
 // ============================================================================
-// load() — Đọc file nhị phân ngược lại vào LogStore
+// load() - Read binary file back into LogStore
 // ============================================================================
 
 bool BinaryIO::load(const char *filepath, LogStore &store) {
@@ -184,7 +184,7 @@ bool BinaryIO::load(const char *filepath, LogStore &store) {
     return false;
   }
 
-  // --- Đọc và validate Header ---
+  // --- Read and validate Header ---
   BinaryHeader header;
   if (std::fread(&header, sizeof(header), 1, file) != 1) {
     std::cerr << "[BinaryIO] load: Failed to read header (file too small?)\n";
@@ -225,7 +225,7 @@ bool BinaryIO::load(const char *filepath, LogStore &store) {
 
   store.stringPool.reserve(stringCount);
 
-  // Buffer tạm để đọc strings
+  // Temporary buffer to read strings
   char strBuffer[4096];
 
   for (uint32_t i = 0; i < stringCount; ++i) {
@@ -249,7 +249,7 @@ bool BinaryIO::load(const char *filepath, LogStore &store) {
       return false;
     }
 
-    // Insert vào StringPool (sẽ tự nhận ID tuần tự 0, 1, 2, ...)
+    // Insert into StringPool (will auto-assign sequential IDs 0, 1, 2, ...)
     store.stringPool.getOrCreateId(strBuffer, strLen);
   }
 
@@ -267,10 +267,10 @@ bool BinaryIO::load(const char *filepath, LogStore &store) {
       return false;
     }
 
-    // Allocate chunk với capacity = entryCount (vừa đủ, không lãng phí)
+    // Allocate chunk with capacity = entryCount (just enough, no waste)
     LogChunk *chunk = new LogChunk(entryCount);
 
-    // fread nguyên khối entries[] — POD struct, an toàn
+    // fread entire entries[] block - POD struct, safe
     if (entryCount > 0) {
       if (std::fread(chunk->raw(), sizeof(LogEntry), entryCount, file) !=
           entryCount) {
@@ -286,7 +286,7 @@ bool BinaryIO::load(const char *filepath, LogStore &store) {
     chunk->setCount(entryCount);
     chunk->setTimestampRange(minTs, maxTs);
 
-    // Inject vào LogStore
+    // Inject into LogStore
     store.addLoadedChunk(chunk, entryCount);
   }
 
@@ -303,11 +303,11 @@ bool BinaryIO::load(const char *filepath, LogStore &store) {
 }
 
 // ============================================================================
-// isValid() — Kiểm tra binary file có stale so với CSV không
+// isValid() - Check if binary file is stale compared to CSV
 // ============================================================================
 
 bool BinaryIO::isValid(const char *binaryPath, const std::string &csvPath) {
-  // Đọc header từ binary file
+  // Read header from binary file
   FILE *file = std::fopen(binaryPath, "rb");
   if (file == nullptr) {
     return false;
@@ -326,14 +326,14 @@ bool BinaryIO::isValid(const char *binaryPath, const std::string &csvPath) {
     return false;
   }
 
-  // Lấy metadata hiện tại của CSV
+  // Get current metadata of CSV
   uint64_t currentSize = 0;
   int64_t currentMod = 0;
   if (!getFileMetadata(csvPath.c_str(), currentSize, currentMod)) {
-    return false; // CSV không tồn tại
+    return false; // CSV does not exist
   }
 
-  // So sánh: nếu CSV đã thay đổi → binary stale
+  // Compare: if CSV has changed -> binary stale
   if (currentSize != header.csvFileSize || currentMod != header.csvModTime) {
     return false;
   }
